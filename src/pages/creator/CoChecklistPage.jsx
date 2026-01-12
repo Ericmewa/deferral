@@ -1,0 +1,522 @@
+// import React, { useState } from "react";
+// import { Button, Divider, Table, Tag } from "antd";
+// import ChecklistsPage from "./ChecklistsPageCreator";
+// import ReviewChecklistModal from "../../components/modals/ReviewChecklistModal";
+// import { useGetAllCoCreatorChecklistsQuery } from "../../api/checklistApi";
+
+// // Theme Colors
+// const PRIMARY_BLUE = "#164679";
+// const ACCENT_LIME = "#b5d334";
+// const HIGHLIGHT_GOLD = "#fcb116";
+// const LIGHT_YELLOW = "#fcd716";
+// const SECONDARY_PURPLE = "#7e6496";
+
+// /* -------------------------------------------------------------------
+//    ⭐ MAIN PAGE: CoChecklistPage
+// ------------------------------------------------------------------- */
+// const CoChecklistPage = ({ userId }) => {
+//   const [drawerOpen, setDrawerOpen] = useState(false);
+//   const [selectedChecklist, setSelectedChecklist] = useState(null);
+
+//   const { data: checklists = [], refetch } =
+//     useGetAllCoCreatorChecklistsQuery();
+
+//   // Filter checklists created by current user
+//   const myChecklists = checklists.filter((c) => c.createdBy?._id === userId);
+
+//   const customTableStyles = `
+//     .ant-table-wrapper {
+//         border-radius: 12px;
+//         overflow: hidden;
+//         box-shadow: 0 10px 30px rgba(22, 70, 121, 0.08);
+//         border: 1px solid #e0e0e0;
+//     }
+//     .ant-table-thead > tr > th {
+//         background-color: #f7f7f7 !important;
+//         color: ${PRIMARY_BLUE} !important;
+//         font-weight: 700;
+//         font-size: 15px;
+//         padding: 16px 16px !important;
+//         border-bottom: 3px solid ${ACCENT_LIME} !important;
+//         border-right: none !important;
+//     }
+//     .ant-table-tbody > tr > td {
+//         border-bottom: 1px solid #f0f0f0 !important;
+//         border-right: none !important;
+//         padding: 14px 16px !important;
+//         font-size: 14px;
+//         color: #333;
+//     }
+//     .ant-table-tbody > tr.ant-table-row:hover > td {
+//         background-color: rgba(181, 211, 52, 0.1) !important;
+//         cursor: pointer;
+//     }
+//     .ant-table-bordered .ant-table-container,
+//     .ant-table-bordered .ant-table-tbody > tr > td,
+//     .ant-table-bordered .ant-table-thead > tr > th {
+//         border: none !important;
+//     }
+//     .ant-pagination .ant-pagination-item-active {
+//         background-color: ${ACCENT_LIME} !important;
+//         border-color: ${ACCENT_LIME} !important;
+//     }
+//     .ant-pagination .ant-pagination-item-active a {
+//         color: ${PRIMARY_BLUE} !important;
+//         font-weight: 600;
+//     }
+//     .ant-pagination .ant-pagination-item:hover {
+//         border-color: ${ACCENT_LIME} !important;
+//     }
+//     .ant-pagination .ant-pagination-prev:hover .ant-pagination-item-link,
+//     .ant-pagination .ant-pagination-next:hover .ant-pagination-item-link {
+//         color: ${ACCENT_LIME} !important;
+//     }
+//     .ant-pagination .ant-pagination-options .ant-select-selector {
+//         border-radius: 8px !important;
+//     }
+//   `;
+
+//   const columns = [
+//     {
+//       title: "DCL No",
+//       dataIndex: "dclNo",
+//       width: 180,
+//       render: (text) => (
+//         <span style={{ fontWeight: "bold", color: PRIMARY_BLUE }}>{text}</span>
+//       ),
+//     },
+//     {
+//       title: "Customer Name",
+//       dataIndex: "customerName",
+//       width: 180,
+//       render: (text) => <span style={{ color: SECONDARY_PURPLE }}>{text}</span>,
+//     },
+//     {
+//       title: "Customer Number",
+//       dataIndex: "customerNumber",
+//       width: 150,
+//       render: (text) => (
+//         <span style={{ color: PRIMARY_BLUE, fontWeight: 500 }}>{text}</span>
+//       ),
+//     },
+//     { title: "Loan Type", dataIndex: "loanType", width: 140 },
+//     {
+//       title: "Assigned RM",
+//       dataIndex: "assignedToRM",
+//       width: 120,
+//       render: (rm) => (
+//         <span style={{ color: PRIMARY_BLUE, fontWeight: "500" }}>
+//           {rm?.name || "Not Assigned"}
+//         </span>
+//       ),
+//     },
+//     {
+//       title: "# Docs",
+//       dataIndex: "documents",
+//       width: 80,
+//       align: "center",
+//       // Docs is the array of categories (e.g., [{ category: 'KYC', docList: [...] }, ...])
+//       render: (docs = []) => {
+//         // 1. Calculate the total count of individual documents
+//         const totalDocCount = docs.reduce((total, category) => {
+//           // 2. Safely add the length of the nested docList to the running total
+//           const docListCount = category.docList ? category.docList.length : 0;
+//           return total + docListCount;
+//         }, 0); // Start the accumulator at 0
+
+//         return (
+//           <Tag
+//             color={LIGHT_YELLOW}
+//             style={{
+//               fontSize: 12,
+//               borderRadius: 999,
+//               fontWeight: "bold",
+//               color: PRIMARY_BLUE,
+//               border: `1px solid ${HIGHLIGHT_GOLD}`,
+//             }}
+//           >
+//             {/* ⭐ Display the calculated total count ⭐ */}
+//             {totalDocCount}
+//           </Tag>
+//         );
+//       },
+//     },
+//     {
+//       title: "Status",
+//       dataIndex: "status",
+//       width: 120,
+//       render: (status) => {
+//         let tagColor, tagText, bgColor;
+
+//         // Normalize status to handle case variations
+//         const normalizedStatus = status ? status.toLowerCase() : "";
+
+//         if (normalizedStatus === "approved") {
+//           tagText = "Approved";
+//           tagColor = ACCENT_LIME;
+//           bgColor = ACCENT_LIME;
+//         } else if (normalizedStatus === "rejected") {
+//           tagText = "Rejected";
+//           tagColor = HIGHLIGHT_GOLD;
+//           bgColor = HIGHLIGHT_GOLD;
+//         } else if (normalizedStatus === "pending") {
+//           tagText = "Pending...";
+//           tagColor = "#01FFF3";
+//           bgColor = "#01FFF3";
+//         } else {
+//           // Fallback for all other statuses
+//           tagText = "In Progress";
+//           tagColor = PRIMARY_BLUE;
+//           bgColor = LIGHT_YELLOW;
+//         }
+
+//         return (
+//           <Tag
+//             color={tagColor}
+//             style={{
+//               fontSize: 12,
+//               borderRadius: 999,
+//               fontWeight: "bold",
+//               padding: "4px 8px",
+//               color: "#5F0707",
+//               backgroundColor: `${bgColor}40`,
+//               borderColor: bgColor,
+//             }}
+//           >
+//             {tagText}
+//           </Tag>
+//         );
+//       },
+//     },
+//     {
+//       title: "Actions",
+//       width: 100,
+//       render: (_, record) => (
+//         <Button
+//           size="small"
+//           type="link"
+//           onClick={() => setSelectedChecklist(record)}
+//           style={{
+//             color: SECONDARY_PURPLE,
+//             fontWeight: "bold",
+//             fontSize: 13,
+//             borderRadius: 6,
+//             "--antd-wave-shadow-color": ACCENT_LIME,
+//           }}
+//         >
+//           View
+//         </Button>
+//       ),
+//     },
+//   ];
+
+//   return (
+//     <div style={{ padding: 16 }}>
+//       <Button type="primary" size="small" onClick={() => setDrawerOpen(true)}>
+//         Create New DCL
+//       </Button>
+
+//       {drawerOpen && (
+//         <ChecklistsPage
+//           open={drawerOpen}
+//           onClose={() => {
+//             setDrawerOpen(false);
+//             refetch();
+//           }}
+//           coCreatorId={userId}
+//         />
+//       )}
+
+//       <Divider style={{ margin: "12px 0" }}>
+//         Created Checklists For Review
+//       </Divider>
+
+//       <style>{customTableStyles}</style>
+
+//       <Table
+//         columns={columns}
+//         dataSource={myChecklists}
+//         rowKey="_id"
+//         size="large"
+//         pagination={{
+//           pageSize: 5,
+//           showSizeChanger: true,
+//           pageSizeOptions: ["5", "10", "20", "50"],
+//           position: ["bottomCenter"],
+//         }}
+//         rowClassName={(record, index) =>
+//           index % 2 === 0 ? "bg-white" : "bg-gray-50"
+//         }
+//       />
+
+//       {selectedChecklist && (
+//         <ReviewChecklistModal
+//           checklist={selectedChecklist}
+//           open={!!selectedChecklist}
+//           onClose={() => setSelectedChecklist(null)}
+//         />
+//       )}
+//     </div>
+//   );
+// };
+
+// export default CoChecklistPage;
+import React, { useState } from "react";
+import { Button, Divider, Table, Tag } from "antd";
+import ChecklistsPage from "./ChecklistsPageCreator";
+import ReviewChecklistModal from "../../components/modals/ReviewChecklistModal";
+import { useGetAllCoCreatorChecklistsQuery } from "../../api/checklistApi";
+
+// Theme Colors
+const PRIMARY_BLUE = "#164679";
+const ACCENT_LIME = "#b5d334";
+const HIGHLIGHT_GOLD = "#fcb116";
+const LIGHT_YELLOW = "#fcd716";
+const SECONDARY_PURPLE = "#7e6496";
+
+/* -------------------------------------------------------------------
+   ⭐ MAIN PAGE: CoChecklistPage
+------------------------------------------------------------------- */
+const CoChecklistPage = ({ userId }) => {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedChecklist, setSelectedChecklist] = useState(null);
+
+  const { data: checklists = [], refetch } =
+    useGetAllCoCreatorChecklistsQuery();
+
+  // Filter checklists created by current user AND status pending
+  const myChecklists = checklists.filter(
+    (c) =>
+      c.createdBy?._id === userId &&
+      (c.status || "").toLowerCase() === "pending"
+  );
+
+  const customTableStyles = `
+    .ant-table-wrapper {
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 10px 30px rgba(22, 70, 121, 0.08);
+        border: 1px solid #e0e0e0;
+    }
+    .ant-table-thead > tr > th {
+        background-color: #f7f7f7 !important;
+        color: ${PRIMARY_BLUE} !important;
+        font-weight: 700;
+        font-size: 15px;
+        padding: 16px 16px !important;
+        border-bottom: 3px solid ${ACCENT_LIME} !important;
+        border-right: none !important;
+    }
+    .ant-table-tbody > tr > td {
+        border-bottom: 1px solid #f0f0f0 !important;
+        border-right: none !important;
+        padding: 14px 16px !important;
+        font-size: 14px;
+        color: #333;
+    }
+    .ant-table-tbody > tr.ant-table-row:hover > td {
+        background-color: rgba(181, 211, 52, 0.1) !important;
+        cursor: pointer;
+    }
+    .ant-table-bordered .ant-table-container,
+    .ant-table-bordered .ant-table-tbody > tr > td,
+    .ant-table-bordered .ant-table-thead > tr > th {
+        border: none !important;
+    }
+    .ant-pagination .ant-pagination-item-active {
+        background-color: ${ACCENT_LIME} !important;
+        border-color: ${ACCENT_LIME} !important;
+    }
+    .ant-pagination .ant-pagination-item-active a {
+        color: ${PRIMARY_BLUE} !important;
+        font-weight: 600;
+    }
+    .ant-pagination .ant-pagination-item:hover {
+        border-color: ${ACCENT_LIME} !important;
+    }
+    .ant-pagination .ant-pagination-prev:hover .ant-pagination-item-link,
+    .ant-pagination .ant-pagination-next:hover .ant-pagination-item-link {
+        color: ${ACCENT_LIME} !important;
+    }
+    .ant-pagination .ant-pagination-options .ant-select-selector {
+        border-radius: 8px !important;
+    }
+  `;
+
+  const columns = [
+    {
+      title: "DCL No",
+      dataIndex: "dclNo",
+      width: 180,
+      render: (text) => (
+        <span style={{ fontWeight: "bold", color: PRIMARY_BLUE }}>{text}</span>
+      ),
+    },
+    {
+      title: "Customer Name",
+      dataIndex: "customerName",
+      width: 180,
+      render: (text) => <span style={{ color: SECONDARY_PURPLE }}>{text}</span>,
+    },
+    {
+      title: "Customer Number",
+      dataIndex: "customerNumber",
+      width: 150,
+      render: (text) => (
+        <span style={{ color: PRIMARY_BLUE, fontWeight: 500 }}>{text}</span>
+      ),
+    },
+    { title: "Loan Type", dataIndex: "loanType", width: 140 },
+    {
+      title: "Assigned RM",
+      dataIndex: "assignedToRM",
+      width: 120,
+      render: (rm) => (
+        <span style={{ color: PRIMARY_BLUE, fontWeight: "500" }}>
+          {rm?.name || "Not Assigned"}
+        </span>
+      ),
+    },
+    {
+      title: "# Docs",
+      dataIndex: "documents",
+      width: 80,
+      align: "center",
+      render: (docs = []) => {
+        const totalDocCount = docs.reduce((total, category) => {
+          const docListCount = category.docList ? category.docList.length : 0;
+          return total + docListCount;
+        }, 0);
+        return (
+          <Tag
+            color={LIGHT_YELLOW}
+            style={{
+              fontSize: 12,
+              borderRadius: 999,
+              fontWeight: "bold",
+              color: PRIMARY_BLUE,
+              border: `1px solid ${HIGHLIGHT_GOLD}`,
+            }}
+          >
+            {totalDocCount}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: "Status",
+      dataIndex: "status",
+      width: 120,
+      render: (status) => {
+        let tagColor, tagText, bgColor;
+        const normalizedStatus = status ? status.toLowerCase() : "";
+
+        if (normalizedStatus === "approved") {
+          tagText = "Approved";
+          tagColor = ACCENT_LIME;
+          bgColor = ACCENT_LIME;
+        } else if (normalizedStatus === "rejected") {
+          tagText = "Rejected";
+          tagColor = HIGHLIGHT_GOLD;
+          bgColor = HIGHLIGHT_GOLD;
+        } else if (normalizedStatus === "pending") {
+          tagText = "Pending...";
+          tagColor = "#01FFF3";
+          bgColor = "#01FFF3";
+        } else {
+          tagText = "In Progress";
+          tagColor = PRIMARY_BLUE;
+          bgColor = LIGHT_YELLOW;
+        }
+
+        return (
+          <Tag
+            color={tagColor}
+            style={{
+              fontSize: 12,
+              borderRadius: 999,
+              fontWeight: "bold",
+              padding: "4px 8px",
+              color: "#5F0707",
+              backgroundColor: `${bgColor}40`,
+              borderColor: bgColor,
+            }}
+          >
+            {tagText}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: "Actions",
+      width: 100,
+      render: (_, record) => (
+        <Button
+          size="small"
+          type="link"
+          onClick={() => setSelectedChecklist(record)}
+          style={{
+            color: SECONDARY_PURPLE,
+            fontWeight: "bold",
+            fontSize: 13,
+            borderRadius: 6,
+            "--antd-wave-shadow-color": ACCENT_LIME,
+          }}
+        >
+          View
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <div style={{ padding: 16 }}>
+      <Button type="primary" size="small" onClick={() => setDrawerOpen(true)}>
+        Create New DCL
+      </Button>
+
+      {drawerOpen && (
+        <ChecklistsPage
+          open={drawerOpen}
+          onClose={() => {
+            setDrawerOpen(false);
+            refetch();
+          }}
+          coCreatorId={userId}
+        />
+      )}
+
+      <Divider style={{ margin: "12px 0" }}>
+        Created Checklists For Review
+      </Divider>
+
+      <style>{customTableStyles}</style>
+
+      <Table
+        columns={columns}
+        dataSource={myChecklists}
+        rowKey="_id"
+        size="large"
+        pagination={{
+          pageSize: 5,
+          showSizeChanger: true,
+          pageSizeOptions: ["5", "10", "20", "50"],
+          position: ["bottomCenter"],
+        }}
+        rowClassName={(record, index) =>
+          index % 2 === 0 ? "bg-white" : "bg-gray-50"
+        }
+      />
+
+      {selectedChecklist && (
+        <ReviewChecklistModal
+          checklist={selectedChecklist}
+          open={!!selectedChecklist}
+          onClose={() => setSelectedChecklist(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+export default CoChecklistPage;
