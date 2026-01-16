@@ -1,102 +1,100 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Menu } from "antd";
-// Import from @ant-design/icons for Navbar
-import { MenuOutlined, BellOutlined, UserOutlined } from "@ant-design/icons";
-// Import from lucide-react for Sidebar
-import { Inbox, CheckCircle, BarChart2 } from "lucide-react";
+import { Inbox, CheckCircle, BarChart2, FileText } from "lucide-react";
 import { useSelector } from "react-redux";
 
-// Import Checker's pages
-import MyQueue from "../../pages/checker/MyQueue";
-import Completed from "../../pages/checker/Completed";
-import ReportsPage from "../../pages/checker/Reports";
-import AllChecklists from "../../pages/checker/allChecklists";
 import Navbar from "../Navbar";
-import CompletedChecklists from "../../pages/checker/MyQueue";
 
-// Sidebar Component with lucide-react icons
+// Pages
+import AllChecklists from "../../pages/checker/allChecklists";
+import CompletedChecklists from "../../pages/checker/Completed";
+import Reportss from "../../pages/creator/Reports";
+import Deferrals from "../../pages/checker/Deferrals";
+
+/* ===========================
+   SIDEBAR COMPONENT
+=========================== */
 const Sidebar = ({
   selectedKey,
   setSelectedKey,
   collapsed,
   toggleCollapse,
 }) => {
-  const handleClick = (e) => setSelectedKey(e.key);
-
   return (
     <div
       style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        height: "100vh",
         width: collapsed ? 80 : 250,
         background: "#3A2A82",
-        paddingTop: 20,
         transition: "width 0.2s",
-        color: "white",
-        position: "relative",
         display: "flex",
         flexDirection: "column",
-        height: "100vh",
+        zIndex: 1000,
       }}
     >
-      <h2
+      {/* Logo */}
+      <div
         style={{
-          textAlign: "center",
-          fontSize: 22,
-          marginBottom: 35,
+          height: 64,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
           fontWeight: "bold",
-          padding: "0 10px",
+          fontSize: collapsed ? 18 : 20,
+          color: "#fff",
         }}
       >
-        {collapsed ? "N" : "CO Checker Dashboard"}
-      </h2>
+        {collapsed ? "N" : "CO Checker"}
+      </div>
 
+      {/* Menu */}
       <Menu
         theme="dark"
         mode="inline"
         selectedKeys={[selectedKey]}
-        onClick={handleClick}
-        style={{ background: "#3A2A82", flex: 1 }}
+        onClick={(e) => setSelectedKey(e.key)}
         inlineCollapsed={collapsed}
+        style={{ flex: 1, background: "#3A2A82" }}
         items={[
           {
             key: "myQueue",
-            icon: <Inbox size={16} style={{ color: "#e5e7eb" }} />,
+            icon: <Inbox size={16} />,
             label: "My Queue",
           },
           {
             key: "completed",
-            icon: <CheckCircle size={16} style={{ color: "#e5e7eb" }} />,
+            icon: <CheckCircle size={16} />,
             label: "Completed",
           },
           {
-            key: "allchecklists",
-            icon: <CheckCircle size={16} style={{ color: "#e5e7eb" }} />,
-            label: "allChecklists",
+            key: "deferrals",
+            icon: <FileText size={16} />,
+            label: "Deferrals",
           },
           {
             key: "reports",
-            icon: <BarChart2 size={16} style={{ color: "#e5e7eb" }} />,
+            icon: <BarChart2 size={16} />,
             label: "Reports",
           },
         ]}
       />
 
-      <div
-        style={{
-          padding: "20px",
-          textAlign: "center",
-        }}
-      >
+      {/* Collapse Button */}
+      <div style={{ padding: 12 }}>
         <button
           onClick={toggleCollapse}
           style={{
+            width: "100%",
+            padding: "8px 12px",
+            border: "none",
+            borderRadius: 6,
+            fontWeight: 600,
+            cursor: "pointer",
             background: "#fff",
             color: "#3A2A82",
-            border: "none",
-            borderRadius: 4,
-            padding: "8px 16px",
-            cursor: "pointer",
-            width: "100%",
-            fontWeight: "bold",
           }}
         >
           {collapsed ? "Expand" : "Collapse"}
@@ -106,65 +104,94 @@ const Sidebar = ({
   );
 };
 
-// Navbar
-
-<Navbar />;
-
-// Main Layout
+/* ===========================
+   MAIN LAYOUT
+=========================== */
 const CheckerLayout = () => {
   const { user } = useSelector((state) => state.auth);
-  const userId = user?.id || "checker_current";
+  const userId = user?.id;
 
   const [selectedKey, setSelectedKey] = useState("myQueue");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
-  const toggleSidebar = () => setSidebarCollapsed(!sidebarCollapsed);
-
-  useEffect(() => {
-    if (!selectedKey) setSelectedKey("myQueue");
-  }, [sidebarCollapsed, selectedKey]);
+  const sidebarWidth = collapsed ? 80 : 250;
 
   const renderContent = () => {
     switch (selectedKey) {
       case "myQueue":
         return <AllChecklists userId={userId} />;
-
       case "completed":
         return <CompletedChecklists userId={userId} />;
-
+      case "deferrals":
+        return <Deferrals userId={userId} />;
       case "reports":
-        return <ReportsPage userId={userId} />;
-      case "allchecklists":
-        return <MyQueue userId={userId} />;
-
+        return <Reportss />;
       default:
-        return <MyQueue userId={userId} />;
+        return <AllChecklists userId={userId} />;
     }
   };
 
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+    <>
+      {/* Sidebar */}
       <Sidebar
         selectedKey={selectedKey}
         setSelectedKey={setSelectedKey}
-        collapsed={sidebarCollapsed}
-        toggleCollapse={toggleSidebar}
+        collapsed={collapsed}
+        toggleCollapse={() => setCollapsed(!collapsed)}
       />
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-        <Navbar toggleSidebar={toggleSidebar} />
+      {/* MAIN AREA */}
+      <div
+        style={{
+          marginLeft: sidebarWidth,
+          height: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          background: "#f0f2f5",
+        }}
+      >
+        {/* NAVBAR (STICKY) */}
         <div
           style={{
-            padding: 20,
+            position: "sticky",
+            top: 0,
+            zIndex: 999,
+            background: "#fff",
+            borderBottom: "1px solid #e5e7eb",
+          }}
+        >
+          <Navbar />
+        </div>
+
+        {/* CONTENT (SCROLLS) */}
+        <div
+          style={{
             flex: 1,
             overflowY: "auto",
-            background: "#f0f2f5",
+            padding: 20,
           }}
         >
           {renderContent()}
         </div>
+
+        {/* FOOTER (STICKY) */}
+        <footer
+          style={{
+            position: "sticky",
+            bottom: 0,
+            background: "#ffffff",
+            borderTop: "1px solid #e5e7eb",
+            padding: "10px 20px",
+            textAlign: "center",
+            fontSize: 12,
+            color: "#6b7280",
+          }}
+        >
+          © {new Date().getFullYear()} NCBA Bank PLC. All Rights Reserved.
+        </footer>
       </div>
-    </div>
+    </>
   );
 };
 

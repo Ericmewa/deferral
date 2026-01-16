@@ -162,7 +162,7 @@ export default function DeferralForm({ userId, onSuccess }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDocuments.length, loanAmount]);
 
-  const [deferralTitle, setDeferralTitle] = useState("");
+
   const [daysSought, setDaysSought] = useState("");
   const [nextDueDate, setNextDueDate] = useState("");
   const [dclNumber, setDclNumber] = useState("");
@@ -345,8 +345,7 @@ export default function DeferralForm({ userId, onSuccess }) {
         setLoanType(data.loanType);
       }
 
-      // Clear the deferral title so RM fills it afresh
-      setDeferralTitle("");
+
 
       // Proceed to deferral details page (hide search form)
       setIsCustomerFetched(true);
@@ -748,16 +747,7 @@ export default function DeferralForm({ userId, onSuccess }) {
       }
     >
       <Row gutter={[16, 16]}>
-        <Col span={24}>
-          <Text strong>Deferral Title</Text>
-          <Input
-            value={deferralTitle}
-            onChange={(e) => setDeferralTitle(e.target.value)}
-            placeholder="Enter deferral title"
-            size="large"
-            required
-          />
-        </Col>
+
         
         <Col span={12}>
           <Text strong>Loan Amount</Text>
@@ -1102,7 +1092,7 @@ export default function DeferralForm({ userId, onSuccess }) {
         customerNumber,
         customerName,
         businessName,
-        deferralTitle,
+
         loanType,
         loanAmount: parsedLoanAmount(),
         daysSought: Number(daysSought) || undefined,
@@ -1260,7 +1250,7 @@ export default function DeferralForm({ userId, onSuccess }) {
         <Descriptions.Item label="Deferral Number">{previewDeferralNumber}</Descriptions.Item>
         <Descriptions.Item label="Customer">{customerName} — {customerNumber}</Descriptions.Item>
         <Descriptions.Item label="DCL No">{dclNumber}</Descriptions.Item>
-        <Descriptions.Item label="Deferral Title">{deferralTitle || '-'}</Descriptions.Item>
+
         <Descriptions.Item label="Loan Type">{formatLoanType(loanType)}</Descriptions.Item>
         <Descriptions.Item label="Days Sought">{daysSought || '-'}</Descriptions.Item>
         <Descriptions.Item label="Next Due Date">{nextDueDate || '-'}</Descriptions.Item>

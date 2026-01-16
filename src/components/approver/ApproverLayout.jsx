@@ -80,7 +80,7 @@ const Sidebar = ({
           },
           {
             key: "actioned",
-            label: "Actioned",
+            label: "Completed",
             icon: <Clock size={16} style={{ color: "#e5e7eb" }} />,
           },
           {

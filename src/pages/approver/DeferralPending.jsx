@@ -36,7 +36,6 @@ import {
   FileImageOutlined,
   FileDoneOutlined,
   PaperClipOutlined,
-  SendOutlined,
   MailOutlined,
   BankOutlined,
   BellOutlined,
@@ -125,7 +124,7 @@ const CommentTrail = ({ history, isLoading }) => {
           <List.Item>
             <List.Item.Meta
               avatar={<Avatar icon={<UserOutlined />} />}
-              title={<div style={{ display: 'flex', justifyContent: 'space-between' }}><div><b>{formatUsername(item.user) || 'System'}</b>{getRoleTag(item.userRole || 'system')}</div><span style={{ fontSize: 12, color: '#999' }}>{dayjs(item.date).format('DD MMM YYYY HH:mm')}</span></div>}
+              title={<div style={{ display: 'flex', justifyContent: 'space-between' }}><div><b>{formatUsername(item.user) || 'System'}</b>{item.userRole ? getRoleTag(item.userRole) : null}</div><span style={{ fontSize: 12, color: '#999' }}>{dayjs(item.date).format('DD MMM YYYY HH:mm')}</span></div>}
               description={<div className="break-words">{item.comment || item.notes || 'No comment provided.'}</div>}
             />
           </List.Item>
@@ -135,58 +134,11 @@ const CommentTrail = ({ history, isLoading }) => {
   );
 };
 
-const AddCommentModal = ({ open, onClose, onAddComment, deferralId }) => {
-  const [form] = Form.useForm();
-  const [loading, setLoading] = useState(false);
-  const token = useSelector(state => state.auth.token);
-  const handleSubmit = () => {
-    form.validateFields().then(async values => {
-      setLoading(true);
-      try {
-        const added = await deferralApi.addComment(deferralId, values.comment, token);
-        message.success('Comment added successfully');
-        form.resetFields();
-        setLoading(false);
-        onAddComment(deferralId, added);
-        onClose();
-      } catch (err) {
-        console.error(err);
-        message.error('Failed to add comment');
-        setLoading(false);
-      }
-    });
-  };
-  return (
-    <Modal title="Add Comment to Deferral" open={open} onCancel={onClose} footer={[<Button key="cancel" onClick={onClose}>Cancel</Button>,<Button key="submit" type="primary" onClick={handleSubmit} loading={loading} style={{ backgroundColor: PRIMARY_BLUE, borderColor: PRIMARY_BLUE }}>Add Comment</Button>]}> 
-      <Form form={form} layout="vertical">
-        <Form.Item name="comment" label="Your Comment" rules={[{ required: true, message: 'Please enter your comment' }]}>
-          <TextArea rows={4} placeholder="Enter your comment here. This will be visible in the comment trail and history." maxLength={500} showCount />
-        </Form.Item>
-        <div style={{ color: '#666', fontSize: 12 }}><InfoCircleOutlined /> Comments added here will appear in the comment trail with your name and timestamp.</div>
-      </Form>
-    </Modal>
-  );
-};
 
-const sendReminderEmail = async (approverEmail, approverName, deferralNumber, customerName) => {
-  try {
-    message.loading(`Sending reminder to ${approverName}...`, 2);
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    console.log('Reminder email', { approverEmail, approverName, deferralNumber, customerName });
-    message.success(`Reminder sent to ${approverName}`);
-    return { success: true, timestamp: new Date().toISOString(), recipient: approverEmail };
-  } catch (err) {
-    console.error(err);
-    message.error('Failed to send reminder');
-    return { success: false, error: err.message };
-  }
-};
 
 const DeferralReviewModal = ({ deferral, open, onClose, onDecision }) => {
-  const [addCommentVisible, setAddCommentVisible] = useState(false);
   const [loadingComments, setLoadingComments] = useState(false);
   const [localDeferral, setLocalDeferral] = useState(deferral);
-  const [sendingReminder, setSendingReminder] = useState(false);
 
   useEffect(() => { setLocalDeferral(deferral); }, [deferral]);
   if (!localDeferral) return null;
@@ -208,6 +160,15 @@ const DeferralReviewModal = ({ deferral, open, onClose, onDecision }) => {
   const uploadedDocs = allDocs.filter(d => d.isUploaded && !d.isDCL);
   const requestedDocs = allDocs.filter(d => d.isRequested || d.isSelected);
 
+  // Determine an approver email from multiple possible sources so the Send Reminder button
+  // can be shown/disabled appropriately when the deferral is pending approval.
+  const approverEmail = (
+    localDeferral?.currentApprover?.email ||
+    (localDeferral?.approverFlow && (localDeferral.approverFlow[0]?.email || localDeferral.approverFlow[0]?.user?.email)) ||
+    (localDeferral?.approvers && (localDeferral.approvers[0]?.email || (typeof localDeferral.approvers[0] === 'string' && localDeferral.approvers[0].includes('@') && localDeferral.approvers[0]))) ||
+    null
+  );
+
   const facilityColumns = [
     { title: 'Facility Type', dataIndex: 'facilityType', key: 'facilityType', render: (t) => <Text strong>{t || 'N/A'}</Text> },
     { title: "Sanctioned (KES '000)", dataIndex: 'sanctioned', key: 'sanctioned', align: 'right', render: (v, r) => { const val = v ?? r.amount ?? 0; return Number(val || 0).toLocaleString(); } },
@@ -215,27 +176,44 @@ const DeferralReviewModal = ({ deferral, open, onClose, onDecision }) => {
     { title: "Headroom (KES '000)", dataIndex: 'headroom', key: 'headroom', align: 'right', render: (v, r) => Number(v ?? r.headroom ?? Math.max(0, (r.amount || 0) - (r.balance || 0))).toLocaleString() }
   ];
 
-  const handleSendReminder = async () => {
-    if (!localDeferral) return;
-    const current = localDeferral.currentApprover || (localDeferral.approverFlow && localDeferral.approverFlow[0]);
-    const email = current?.email || (typeof current === 'string' && current.includes('@') ? current : '');
-    const name = current?.name || (typeof current === 'string' ? current : 'Approver');
-    if (!email) { message.warning('No email for current approver'); return; }
-    setSendingReminder(true);
-    const res = await sendReminderEmail(email, name, localDeferral.deferralNumber, localDeferral.customerName);
-    setSendingReminder(false);
-    if (res.success) {
-      const historyEntry = { action: 'Reminder Sent', user: 'RM', date: new Date().toISOString(), notes: `Reminder sent to ${name}`, comment: `Reminder sent to ${name}` };
-      if (onDecision) onDecision('addComment', localDeferral._id, historyEntry);
-      setLocalDeferral(prev => ({ ...prev, history: [...(prev.history||[]), historyEntry] }));
-    }
-  };
+
 
   // Approval actions
   const token = useSelector(state => state.auth.token);
   const currentUser = useSelector(state => state.auth.user);
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  const [sendingReminder, setSendingReminder] = useState(false);
+
+  const handleSendReminder = async () => {
+    if (!localDeferral || !localDeferral._id) {
+      message.error('No deferral selected');
+      return;
+    }
+
+    setSendingReminder(true);
+    try {
+      const r = await deferralApi.sendReminder(localDeferral._id, token);
+      if (r && r.success) {
+        message.success(`Reminder sent to ${r.email || 'approver'}`);
+        try {
+          const updated = await deferralApi.getDeferralById(localDeferral._id);
+          setLocalDeferral(updated);
+          try { window.dispatchEvent(new CustomEvent('deferral:updated', { detail: updated })); } catch(e) { /* ignore */ }
+          if (onDecision) onDecision('refreshQueue');
+        } catch (err) {
+          console.debug('Failed to refresh deferral after reminder', err);
+        }
+      } else {
+        message.error('Failed to send reminder');
+      }
+    } catch (err) {
+      console.error('sendReminder error', err);
+      message.error(err.message || 'Failed to send reminder');
+    } finally {
+      setSendingReminder(false);
+    }
+  };
 
   const isCurrentUserApprover = (() => {
     const idx = localDeferral.currentApproverIndex ?? 0;
@@ -259,6 +237,7 @@ const DeferralReviewModal = ({ deferral, open, onClose, onDecision }) => {
       setLocalDeferral(updated);
       if (onDecision) onDecision('approve', localDeferral._id, updated);
       if (onDecision) onDecision('refreshQueue');
+      try { window.dispatchEvent(new CustomEvent('deferral:updated', { detail: updated })); } catch (e) { console.debug('Failed to dispatch deferral:updated', e); }
     } catch (err) {
       message.error(err.message || 'Failed to approve');
     } finally {
@@ -266,27 +245,55 @@ const DeferralReviewModal = ({ deferral, open, onClose, onDecision }) => {
     }
   };
 
-  const handleReject = async () => {
-    const reason = window.prompt('Enter rejection reason:');
-    if (!reason) { message.warning('Rejection reason is required'); return; }
-    setRejecting(true);
-    try {
-      const updated = await deferralApi.rejectDeferral(localDeferral._id, reason, token);
-      message.success('Deferral rejected');
-      setLocalDeferral(updated);
-      if (onDecision) onDecision('reject', localDeferral._id, updated);
-      if (onDecision) onDecision('refreshQueue');
-    } catch (err) {
-      message.error(err.message || 'Failed to reject');
-    } finally {
-      setRejecting(false);
-    }
+  const handleReject = () => {
+    Modal.confirm({
+      title: 'Reject Deferral Request',
+      icon: <ExclamationCircleOutlined />,
+      content: (
+        <div>
+          <p>Are you sure you want to reject this deferral request?</p>
+          <p><strong>{localDeferral?.deferralNumber}</strong> - {localDeferral?.customerName}</p>
+          <p>Please provide a reason for rejection:</p>
+          <Input.TextArea rows={3} placeholder="Enter rejection reason..." style={{ marginTop: 8 }} id={`rejectionComment_${localDeferral?._id}`} />
+        </div>
+      ),
+      okText: 'Yes, Reject',
+      okType: 'danger',
+      okButtonProps: { style: { background: ERROR_RED, borderColor: ERROR_RED } },
+      cancelText: 'Cancel',
+      async onOk() {
+        const commentInput = document.getElementById(`rejectionComment_${localDeferral?._id}`);
+        const comment = commentInput?.value;
+        if (!comment || comment.trim() === '') {
+          message.error('Please provide a rejection reason');
+          throw new Error('Rejection reason required');
+        }
+        setRejecting(true);
+        try {
+          const updated = await deferralApi.rejectDeferral(localDeferral._id, comment, token);
+          message.success('Deferral rejected');
+          setLocalDeferral(updated);
+          if (onDecision) onDecision('reject', localDeferral._id, updated);
+          if (onDecision) onDecision('refreshQueue');
+          try { window.dispatchEvent(new CustomEvent('deferral:updated', { detail: updated })); } catch (e) { console.debug('Failed to dispatch deferral:updated', e); }
+        } catch (err) {
+          message.error(err.message || 'Failed to reject');
+        } finally {
+          setRejecting(false);
+        }
+      }
+    });
   };
 
   const footerButtons = [];
-  if (isCurrentUserApprover && isPendingApproval) {
+  const isWithdrawn = status === 'withdrawn';
+  
+  if (isCurrentUserApprover && isPendingApproval && !isWithdrawn) {
     footerButtons.push(<Popconfirm key="confirmReject" title="Are you sure you want to reject this deferral?" onConfirm={handleReject} okText="Reject" cancelText="Cancel"><Button key="reject" danger loading={rejecting}>Reject</Button></Popconfirm>);
     footerButtons.push(<Button key="approve" type="primary" onClick={handleApprove} loading={approving} style={{ backgroundColor: PRIMARY_BLUE, borderColor: PRIMARY_BLUE }}>Approve</Button>);
+  } else if (isWithdrawn) {
+    footerButtons.push(<Button key="reject" danger disabled style={{ backgroundColor: '#d9d9d9', borderColor: '#d9d9d9', color: '#8c8c8c' }}>Reject</Button>);
+    footerButtons.push(<Button key="approve" type="primary" disabled style={{ backgroundColor: '#d9d9d9', borderColor: '#d9d9d9', color: '#8c8c8c' }}>Approve</Button>);
   }
   footerButtons.push(<Button key="close" onClick={onClose}>Close</Button>);
 
@@ -306,13 +313,157 @@ const DeferralReviewModal = ({ deferral, open, onClose, onDecision }) => {
         <Card className="deferral-info-card" size="small" title={<span style={{ color: PRIMARY_BLUE }}>Deferral Details</span>} style={{ marginBottom: 18 }}>
           <Descriptions size="middle" column={{ xs: 1, sm: 2, lg: 3 }}>
             <Descriptions.Item label="Deferral Number"><Text strong style={{ color: PRIMARY_BLUE }}>{localDeferral.deferralNumber}</Text></Descriptions.Item>
-            <Descriptions.Item label="DCL No">{localDeferral.dclNo || localDeferral.dclNumber}</Descriptions.Item>
-            <Descriptions.Item label="Status"><div style={{ fontWeight: 500 }}>{status === 'deferral_requested' ? 'Pending' : status}</div></Descriptions.Item>
-            <Descriptions.Item label="Deferral Title"><div style={{ fontWeight: 500 }}>{localDeferral.deferralTitle}</div></Descriptions.Item>
-            <Descriptions.Item label="Loan Amount"><div style={{ fontWeight: 500 }}>{localDeferral.loanAmount || 'Not specified'}</div></Descriptions.Item>
+            <Descriptions.Item label="DCL No"><Text strong style={{ color: PRIMARY_BLUE }}>{localDeferral.dclNo || localDeferral.dclNumber}</Text></Descriptions.Item>
+            <Descriptions.Item label="Status">
+              {status === 'deferral_requested' || status === 'pending_approval' ? (
+                <Tag color="processing" style={{ fontWeight: 700 }}>
+                  Pending
+                </Tag>
+              ) : status === 'deferral_approved' || status === 'approved' ? (
+                <Tag color="success" style={{ fontWeight: 700 }}>
+                  Approved
+                </Tag>
+              ) : status === 'deferral_rejected' || status === 'rejected' ? (
+                <Tag color="error" style={{ fontWeight: 700 }}>
+                  Rejected
+                </Tag>
+              ) : (
+                <div style={{ fontWeight: 500 }}>{status}</div>
+              )}
+            </Descriptions.Item>
+
+            {/* Creator Status */}
+            <Descriptions.Item label="Creator Status">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {(() => {
+                  const creatorStatus = localDeferral.creatorApprovalStatus || 'pending';
+                  if (creatorStatus === 'approved') {
+                    return (
+                      <Tag color="success" style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <CheckCircleOutlined />
+                        Approved
+                      </Tag>
+                    );
+                  } else if (creatorStatus === 'rejected') {
+                    return (
+                      <Tag color="error" style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <CloseCircleOutlined />
+                        Rejected
+                      </Tag>
+                    );
+                  }
+                  return (
+                    <Tag color="processing" style={{ fontWeight: 700 }}>
+                      Pending
+                    </Tag>
+                  );
+                })()}
+                {localDeferral.creatorApprovalDate && (
+                  <span style={{ fontSize: '12px', color: '#666' }}>
+                    {dayjs(localDeferral.creatorApprovalDate).format('DD/MM/YY HH:mm')}
+                  </span>
+                )}
+              </div>
+            </Descriptions.Item>
+
+            {/* Checker Status */}
+            <Descriptions.Item label="Checker Status">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {(() => {
+                  const checkerStatus = localDeferral.checkerApprovalStatus || 'pending';
+                  if (checkerStatus === 'approved') {
+                    return (
+                      <Tag color="success" style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <CheckCircleOutlined />
+                        Approved
+                      </Tag>
+                    );
+                  } else if (checkerStatus === 'rejected') {
+                    return (
+                      <Tag color="error" style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <CloseCircleOutlined />
+                        Rejected
+                      </Tag>
+                    );
+                  }
+                  return (
+                    <Tag color="processing" style={{ fontWeight: 700 }}>
+                      Pending
+                    </Tag>
+                  );
+                })()}
+                {localDeferral.checkerApprovalDate && (
+                  <span style={{ fontSize: '12px', color: '#666' }}>
+                    {dayjs(localDeferral.checkerApprovalDate).format('DD/MM/YY HH:mm')}
+                  </span>
+                )}
+              </div>
+            </Descriptions.Item>
+
+            {/* Approvers Status */}
+            <Descriptions.Item label="Approvers Status">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {(() => {
+                  const approvers = localDeferral.approvals || [];
+                  const approvedCount = approvers.filter(a => a.status === 'approved').length;
+                  const totalCount = approvers.length;
+                  
+                  if (totalCount === 0) {
+                    return (
+                      <Tag color="processing" style={{ fontWeight: 700 }}>
+                        No approvers
+                      </Tag>
+                    );
+                  }
+                  
+                  if (approvedCount === totalCount && totalCount > 0) {
+                    return (
+                      <Tag color="success" style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <CheckCircleOutlined />
+                        All Approved
+                      </Tag>
+                    );
+                  }
+                  
+                  return (
+                    <Tag color="processing" style={{ fontWeight: 700 }}>
+                      {approvedCount} of {totalCount} Approved
+                    </Tag>
+                  );
+                })()}
+              </div>
+            </Descriptions.Item>
+
+            <Descriptions.Item label="Loan Amount">
+              <div style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div>{(function(){
+                  const amt = Number(localDeferral.loanAmount || 0);
+                  if (!amt) return 'Not specified';
+                  return `KSh ${amt.toLocaleString()}`;
+                })()}</div>
+                {(function(){
+                  const amt = Number(localDeferral.loanAmount || 0);
+                  if (!amt) return null;
+                  const isAbove75 = amt > 75 && amt <= 1000 ? true : (amt > 75000000 ? true : false);
+                  return isAbove75 ? <Tag color={'red'} style={{ fontSize: 12 }}>Above 75 million</Tag> : <span style={{ color: SUCCESS_GREEN, fontWeight: 600 }}>Under 75 million</span>;
+                })()}
+              </div>
+            </Descriptions.Item>
             <Descriptions.Item label="Days Sought"><div style={{ fontWeight: 'bold', color: localDeferral.daysSought > 45 ? ERROR_RED : localDeferral.daysSought > 30 ? WARNING_ORANGE : PRIMARY_BLUE }}>{localDeferral.daysSought || 0} days</div></Descriptions.Item>
-            <Descriptions.Item label="Next Due Date"><div style={{ color: localDeferral.nextDueDate ? (dayjs(localDeferral.nextDueDate).isBefore(dayjs()) ? ERROR_RED : SUCCESS_GREEN) : PRIMARY_BLUE }}>{localDeferral.nextDueDate ? dayjs(localDeferral.nextDueDate).format('DD MMM YYYY') : 'Not calculated'}</div></Descriptions.Item>
+            <Descriptions.Item label="Next Due Date">
+              <div style={{ color: (localDeferral.nextDueDate || localDeferral.nextDocumentDueDate || localDeferral.requestedExpiry) ? (dayjs(localDeferral.nextDueDate || localDeferral.nextDocumentDueDate || localDeferral.requestedExpiry).isBefore(dayjs()) ? ERROR_RED : SUCCESS_GREEN) : PRIMARY_BLUE }}>
+                {(localDeferral.nextDueDate || localDeferral.nextDocumentDueDate || localDeferral.requestedExpiry) ? `${dayjs(localDeferral.nextDueDate || localDeferral.nextDocumentDueDate || localDeferral.requestedExpiry).format('DD MMM YYYY')}` : 'Not calculated'}
+              </div>
+            </Descriptions.Item>
             <Descriptions.Item label="SLA Expiry"><div style={{ color: localDeferral.slaExpiry && dayjs(localDeferral.slaExpiry).isBefore(dayjs()) ? ERROR_RED : PRIMARY_BLUE }}>{localDeferral.slaExpiry ? dayjs(localDeferral.slaExpiry).format('DD MMM YYYY HH:mm') : 'Not set'}</div></Descriptions.Item>
+
+            {/* Created At */}
+            <Descriptions.Item label="Created At">
+              <div>
+                <Text strong style={{ color: PRIMARY_BLUE }}>{dayjs(localDeferral.createdAt||localDeferral.requestedDate).format('DD MMM YYYY')}</Text>
+                <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>{dayjs(localDeferral.createdAt||localDeferral.requestedDate).format('HH:mm')}</Text>
+              </div>
+            </Descriptions.Item>
           </Descriptions>
 
           {localDeferral.deferralDescription && (<div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}><Text strong style={{ display: 'block', marginBottom: 8 }}>Deferral Description</Text><div style={{ padding: 12, backgroundColor: '#f8f9fa', borderRadius: 6, border: '1px solid #e8e8e8' }}><Text>{localDeferral.deferralDescription}</Text></div></div>)}
@@ -409,7 +560,24 @@ const DeferralReviewModal = ({ deferral, open, onClose, onDecision }) => {
           )}
         </Card>
 
-        <Card size="small" title={<span style={{ color: PRIMARY_BLUE, fontSize: 14 }}>Approval Flow {isPendingApproval && (<Tag color="orange" style={{ marginLeft: 8, fontSize: 11 }}>Pending Approval</Tag>)}</span>} style={{ marginBottom: 18 }}>
+        <Card size="small" title={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div><span style={{ color: PRIMARY_BLUE, fontSize: 14 }}>Approval Flow {isPendingApproval && (<Tag color="orange" style={{ marginLeft: 8, fontSize: 11 }}>Pending Approval</Tag>)}</span></div>
+            {isPendingApproval ? (
+              <div style={{ marginLeft: 12 }}>
+                <Button
+                  size="small"
+                  icon={<BellOutlined />}
+                  onClick={handleSendReminder}
+                  loading={sendingReminder}
+                  disabled={!approverEmail}
+                  type="default"
+                  style={{ borderColor: ACCENT_LIME, color: PRIMARY_BLUE, fontWeight: 600 }}
+                >
+                  Send Reminder
+                </Button>
+              </div>
+            ) : null}
+          </div>} style={{ marginBottom: 18 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {localDeferral.approverFlow && localDeferral.approverFlow.length > 0 ? (
               localDeferral.approverFlow.map((approver, index) => {
@@ -432,12 +600,9 @@ const DeferralReviewModal = ({ deferral, open, onClose, onDecision }) => {
                     </div>
 
                     {isCurrentApprover && isPendingApproval && hasEmail && (
-                      <Space>
-                        <div style={{ fontSize: 12, color: '#666' }}>
-                          <MailOutlined style={{ marginRight: 4 }} />{localDeferral.currentApprover.email}
-                        </div>
-                        <Button type="primary" icon={<SendOutlined />} onClick={handleSendReminder} loading={sendingReminder} size="small" style={{ backgroundColor: ACCENT_LIME, borderColor: ACCENT_LIME, color: PRIMARY_BLUE, fontWeight: 600 }}>Send Reminder</Button>
-                      </Space>
+                      <div style={{ fontSize: 12, color: '#666', marginLeft: 'auto' }}>
+                        <MailOutlined style={{ marginRight: 4 }} />{localDeferral.currentApprover.email}
+                      </div>
                     )}
                   </div>
                 );
@@ -464,21 +629,9 @@ const DeferralReviewModal = ({ deferral, open, onClose, onDecision }) => {
                     </div>
 
                     {isCurrentApprover && isPendingApproval && isEmail && (
-                      <Space>
-                        <div style={{ fontSize: 12, color: '#666' }}>
-                          <MailOutlined style={{ marginRight: 4 }} />{approver}
-                        </div>
-                        <Button type="primary" icon={<SendOutlined />} onClick={async () => {
-                          setSendingReminder(true);
-                          const result = await sendReminderEmail(approver, approver.split('@')[0], localDeferral.deferralNumber, localDeferral.customerName);
-                          setSendingReminder(false);
-                          if (result.success) {
-                            const historyEntry = { action: 'Reminder Sent', user: 'RM', date: new Date().toISOString(), notes: `Reminder email sent to ${approver.split('@')[0]} (${approver})`, comment: `Reminder sent to ${approver.split('@')[0]}` };
-                            if (onDecision) onDecision('addComment', localDeferral._id, historyEntry);
-                            setLocalDeferral(prev => ({ ...prev, history: [...(prev.history||[]), historyEntry] }));
-                          }
-                        }} loading={sendingReminder} size="small" style={{ backgroundColor: ACCENT_LIME, borderColor: ACCENT_LIME, color: PRIMARY_BLUE, fontWeight: 600 }}>Send Reminder</Button>
-                      </Space>
+                      <div style={{ fontSize: 12, color: '#666', marginLeft: 'auto' }}>
+                        <MailOutlined style={{ marginRight: 4 }} />{approver}
+                      </div>
                     )}
                   </div>
                 );
@@ -490,19 +643,7 @@ const DeferralReviewModal = ({ deferral, open, onClose, onDecision }) => {
               </div>
             )}
 
-            {isPendingApproval && (
-              <div style={{ padding: '12px 16px', backgroundColor: '#fff7e6', borderRadius: 6, border: '1px solid #ffd591', marginTop: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <BellOutlined style={{ color: WARNING_ORANGE, marginTop: 2 }} />
-                  <div>
-                    <Text strong style={{ fontSize: 13, color: WARNING_ORANGE }}>Send Reminder</Text>
-                    <Text style={{ fontSize: 12, color: '#666', display: 'block', marginTop: 4 }}>
-                      You can send a reminder email to the current approver if this deferral is pending approval for too long. The email will include deferral details and a direct link to the approval page.
-                    </Text>
-                  </div>
-                </div>
-              </div>
-            )}
+
           </div>
         </Card>
 
@@ -573,8 +714,7 @@ const DeferralPending = ({ userId = "creator_current" }) => {
         d.dclNo.toLowerCase().includes(searchText.toLowerCase()) ||
         d.customerNumber.toLowerCase().includes(searchText.toLowerCase()) ||
         d.customerName.toLowerCase().includes(searchText.toLowerCase()) ||
-        d.businessName.toLowerCase().includes(searchText.toLowerCase()) ||
-        d.deferralTitle.toLowerCase().includes(searchText.toLowerCase())
+        d.businessName.toLowerCase().includes(searchText.toLowerCase())
       );
     }
     
@@ -658,49 +798,7 @@ const DeferralPending = ({ userId = "creator_current" }) => {
       ),
       sorter: (a, b) => a.customerName.localeCompare(b.customerName)
     },
-    {
-      title: "Document",
-      dataIndex: "deferralTitle",
-      key: "deferralTitle",
-      width: 180,
-      render: (text, record) => (
-        <div>
-          <div style={{ fontSize: 12, color: "#333", fontWeight: 500 }}>
-            {text}
-          </div>
-          <div style={{ fontSize: 11, color: "#999" }}>
-            {record.documentType}
-          </div>
-        </div>
-      ),
-      sorter: (a, b) => a.deferralTitle.localeCompare(b.deferralTitle)
-    },
-    {
-      title: "Type",
-      dataIndex: "deferralType",
-      key: "deferralType",
-      width: 100,
-      render: (type) => (
-        <Tag
-          color={type === "New" ? "blue" : "orange"}
-          style={{
-            fontSize: 11,
-            fontWeight: "bold",
-            borderRadius: 4,
-            minWidth: 70,
-            textAlign: "center"
-          }}
-        >
-          {type}
-        </Tag>
-      ),
-      filters: [
-        { text: 'New', value: 'New' },
-        { text: 'Extension', value: 'Extension' }
-      ],
-      onFilter: (value, record) => record.deferralType === value,
-      sorter: (a, b) => a.deferralType.localeCompare(b.deferralType)
-    },
+
     {
       title: "Days Sought",
       dataIndex: "daysSought",
@@ -958,22 +1056,7 @@ const DeferralPending = ({ userId = "creator_current" }) => {
             <div style={{ fontSize: 12, color: '#666' }}>Urgent (≤1 day)</div>
           </div>
         </Card>
-        <Card size="small" style={{ flex: 1, minWidth: 150 }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 24, fontWeight: 'bold', color: SECONDARY_PURPLE }}>
-              {filteredData.filter(d => d.deferralType === 'New').length}
-            </div>
-            <div style={{ fontSize: 12, color: '#666' }}>New Deferrals</div>
-          </div>
-        </Card>
-        <Card size="small" style={{ flex: 1, minWidth: 150 }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 24, fontWeight: 'bold', color: ACCENT_LIME }}>
-              {filteredData.filter(d => d.deferralType === 'Extension').length}
-            </div>
-            <div style={{ fontSize: 12, color: '#666' }}>Extensions</div>
-          </div>
-        </Card>
+
       </div>
 
       {/* Table Title */}

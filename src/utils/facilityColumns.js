@@ -1,0 +1,19 @@
+import React from 'react';
+import { Typography } from 'antd';
+const { Text } = Typography;
+
+// Centralized facility columns used across deferral modals
+export default function getFacilityColumns() {
+  const PRIMARY_BLUE = "#164679";
+  const SUCCESS_GREEN = "#52c41a";
+
+  return [
+    { title: 'Facility Type', dataIndex: 'facilityType', key: 'facilityType', render: (t) => React.createElement(Text, { strong: true }, t || 'N/A') },
+    { title: "Sanctioned (KES '000)", dataIndex: 'sanctioned', key: 'sanctioned', align: 'right', render: (v, r) => {
+        const val = v ?? r.amount ?? 0; return Number(val || 0).toLocaleString();
+      }
+    },
+    { title: "Balance (KES '000)", dataIndex: 'balance', key: 'balance', align: 'right', render: (v, r) => Number(v ?? r.balance ?? 0).toLocaleString() },
+    { title: "Headroom (KES '000)", dataIndex: 'headroom', key: 'headroom', align: 'right', render: (v, r) => Number(v ?? r.headroom ?? Math.max(0, (r.amount || 0) - (r.balance || 0))).toLocaleString() }
+  ];
+}

@@ -265,53 +265,42 @@ const DeferralReviewModal = ({ deferral, open, onClose, onApprove, onReject }) =
             </Col>
           </Row>
 
-          {/* Document Details */}
-          <Card size="small" style={{ marginBottom: 24 }} title="Document Details">
-            <Row gutter={[16, 16]}>
-              <Col span={12}>
-                <Descriptions column={1} size="small">
-                  <Descriptions.Item label="Document">
-                    <Text strong style={{ fontSize: 15 }}>
-                      {deferral.deferralTitle}
-                    </Text>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Document Type">
-                    <Tag color="blue">{deferral.documentType}</Tag>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Deferral Type">
-                    <Tag color={deferral.deferralType === "New" ? "green" : "orange"}>
-                      {deferral.deferralType}
-                    </Tag>
-                  </Descriptions.Item>
-                </Descriptions>
-              </Col>
-              <Col span={12}>
-                <Descriptions column={1} size="small">
-                  <Descriptions.Item label="Days Sought">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Badge 
-                        count={deferral.daysSought}
-                        style={{ 
-                          backgroundColor: deferral.daysSought > 30 ? ERROR_RED : SUCCESS_GREEN,
-                          fontSize: 14
-                        }}
-                      />
-                      <Text>days extension</Text>
-                    </div>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Original Due Date">
-                    <div style={{ fontWeight: 500 }}>
-                      {dayjs(deferral.originalDueDate).format('DD MMM YYYY')}
-                    </div>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Requested Expiry">
-                    <div style={{ fontWeight: 500, color: WARNING_ORANGE }}>
-                      {dayjs(deferral.requestedExpiry).format('DD MMM YYYY')}
-                    </div>
-                  </Descriptions.Item>
-                </Descriptions>
-              </Col>
-            </Row>
+          {/* Deferral Details */}
+          <Card size="small" style={{ marginBottom: 24 }} title="Deferral Details">
+            <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} size="small">
+              <Descriptions.Item label="Deferral Number"><div style={{ fontWeight: 700, color: PRIMARY_BLUE }}>{deferral.deferralNumber}</div></Descriptions.Item>
+              <Descriptions.Item label="DCL No">{deferral.dclNo || deferral.dclNumber}</Descriptions.Item>
+              <Descriptions.Item label="Status"><div style={{ fontWeight: 500 }}>{deferral.status || 'Pending'}</div></Descriptions.Item>
+
+              <Descriptions.Item label="Loan Amount">
+                <div style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div>{(function(){
+                    const amt = Number(deferral.loanAmount || 0);
+                    if (!amt) return 'Not specified';
+                    if (amt > 1000) {
+                      return `KSh ${amt.toLocaleString()}`;
+                    }
+                    return `${amt} M`;
+                  })()}</div>
+                  {(function(){
+                    const amt = Number(deferral.loanAmount || 0);
+                    if (!amt) return null;
+                    const isAbove75 = amt > 75 && amt <= 1000 ? true : (amt > 75000000 ? true : false);
+                    return isAbove75 ? <Tag color={'red'} style={{ fontSize: 12 }}>Above 75 million</Tag> : <span style={{ color: SUCCESS_GREEN, fontWeight: 600 }}>Under 75 million</span>;
+                  })()}
+                </div>
+              </Descriptions.Item>
+
+              <Descriptions.Item label="Days Sought"><div style={{ fontWeight: 'bold', color: deferral.daysSought > 45 ? ERROR_RED : deferral.daysSought > 30 ? WARNING_ORANGE : PRIMARY_BLUE }}>{deferral.daysSought || 0} days</div></Descriptions.Item>
+
+              <Descriptions.Item label="Next Due Date">
+                <div style={{ color: (deferral.nextDueDate || deferral.nextDocumentDueDate || deferral.requestedExpiry) ? (dayjs(deferral.nextDueDate || deferral.nextDocumentDueDate || deferral.requestedExpiry).isBefore(dayjs()) ? ERROR_RED : SUCCESS_GREEN) : PRIMARY_BLUE }}>
+                  {(deferral.nextDueDate || deferral.nextDocumentDueDate || deferral.requestedExpiry) ? `${dayjs(deferral.nextDueDate || deferral.nextDocumentDueDate || deferral.requestedExpiry).format('DD MMM YYYY')}` : 'Not calculated'}
+                </div>
+              </Descriptions.Item>
+
+              <Descriptions.Item label="SLA Expiry"><div style={{ color: deferral.slaExpiry && dayjs(deferral.slaExpiry).isBefore(dayjs()) ? ERROR_RED : PRIMARY_BLUE }}>{deferral.slaExpiry ? dayjs(deferral.slaExpiry).format('DD MMM YYYY HH:mm') : 'Not set'}</div></Descriptions.Item>
+            </Descriptions>
           </Card>
 
           {/* Timeline */}
@@ -614,8 +603,7 @@ const Approver = ({ userId = "approver_current" }) => {
         d.dclNo.toLowerCase().includes(searchText.toLowerCase()) ||
         d.customerNumber.toLowerCase().includes(searchText.toLowerCase()) ||
         d.customerName.toLowerCase().includes(searchText.toLowerCase()) ||
-        d.rmName.toLowerCase().includes(searchText.toLowerCase()) ||
-        d.deferralTitle.toLowerCase().includes(searchText.toLowerCase())
+        d.rmName.toLowerCase().includes(searchText.toLowerCase())
       );
     }
 
@@ -648,7 +636,7 @@ const Approver = ({ userId = "approver_current" }) => {
     }
 
     return filtered;
-  }, [data, activeTab, searchText, categoryFilter, typeFilter, priorityFilter, statusFilter, dateRange]);
+  }, [queueData, actionedData, activeTab, searchText, categoryFilter, typeFilter, priorityFilter, statusFilter, dateRange]);
 
   // Statistics
   const stats = useMemo(() => {
@@ -706,7 +694,7 @@ const Approver = ({ userId = "approver_current" }) => {
         return [updated, ...prev];
       });
 
-      window.dispatchEvent(new CustomEvent('deferral:updated', { detail: { id: updated._id, status: updated.status } }));
+      window.dispatchEvent(new CustomEvent('deferral:updated', { detail: updated }));
 
       message.success('Deferral rejected successfully');
       return updated;
@@ -755,18 +743,7 @@ const Approver = ({ userId = "approver_current" }) => {
       ),
       sorter: (a, b) => a.customerName.localeCompare(b.customerName)
     },
-    {
-      title: "Document",
-      dataIndex: "deferralTitle",
-      key: "deferralTitle",
-      width: 200,
-      ellipsis: true,
-      render: (text) => (
-        <Tooltip title={text}>
-          <div style={{ fontSize: 12 }}>{text}</div>
-        </Tooltip>
-      )
-    },
+
     {
       title: "Category",
       dataIndex: "category",
@@ -1329,7 +1306,7 @@ const Approver = ({ userId = "approver_current" }) => {
           <Row justify="space-between" align="middle">
             <Col>
               <Text type="secondary">
-                Showing {filteredData.length} of {data.length} total deferrals
+                Showing {filteredData.length} of {stats.total} total deferrals
               </Text>
             </Col>
             <Col>
@@ -1385,4 +1362,4 @@ const Approver = ({ userId = "approver_current" }) => {
   );
 };
 
-export default Dashboard;
+export default Approver; 

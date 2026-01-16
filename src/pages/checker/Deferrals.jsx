@@ -57,8 +57,8 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { jsPDF } from 'jspdf';
 import deferralApi from '../../service/deferralApi.js';
-import { openFileInNewTab, downloadFile } from '../../utils/fileUtils';
-import getFacilityColumns from '../../utils/facilityColumns';
+import { openFileInNewTab, downloadFile } from '../../utils/fileUtils.js';
+import getFacilityColumns from '../../utils/facilityColumns.js';
 
 // Extend dayjs
 dayjs.extend(relativeTime);
@@ -479,20 +479,21 @@ const Deferrals = ({ userId }) => {
     let base = deferrals.filter(d => {
       const s = (d.status || '').toString().toLowerCase();
       if (activeTab === 'pending') {
-        // PENDING tab: Show all deferrals that are NOT fully approved (not yet rejected/closed/returned)
+        // PENDING tab: Show all deferrals that are NOT fully approved AND NOT rejected/closed/returned
         const hasCreatorApproved = d.creatorApprovalStatus === 'approved';
         const hasCheckerApproved = d.checkerApprovalStatus === 'approved';
         const allApproversApproved = d.allApproversApproved === true;
        
         const isFullyApproved = hasCreatorApproved && hasCheckerApproved && allApproversApproved;
        
-        // Hide if it's fully approved, rejected, closed, or returned
-        if (isFullyApproved || rejectedStatuses.includes(s) || closedStatuses.includes(s) || returnedStatuses.includes(s)) {
-          return false;
-        }
+        // If it's fully approved, don't show in pending
+        if (isFullyApproved) return false;
        
-        // Show all other pending deferrals (even if all approvers approved, show until creator/checker approve)
-        return true;
+        // Show if status is pending, or if any approver/creator/checker is still pending
+        return pendingStatuses.includes(s) ||
+               !hasCreatorApproved ||
+               !hasCheckerApproved ||
+               !allApproversApproved;
       }
       if (activeTab === 'returned') return returnedStatuses.includes(s);
       if (activeTab === 'approved') {
@@ -551,15 +552,8 @@ const Deferrals = ({ userId }) => {
     const userId = currentUser._id || currentUser.user?._id;
    
     // For CO Dashboard, check if current user is creator or checker
-    // If creator field is missing (old deferrals), we assume user on this Creator page can approve
-    let isCreator = deferral.creator && (deferral.creator._id === userId || deferral.creator === userId);
-    let isChecker = deferral.checker && (deferral.checker._id === userId || deferral.checker === userId);
-    
-    // If creator/checker aren't explicitly set, we can't determine role - return false
-    // (This page should only be accessed by creators/checkers anyway)
-    if (!isCreator && !isChecker) {
-      return false;
-    }
+    const isCreator = deferral.creator && (deferral.creator._id === userId || deferral.creator === userId);
+    const isChecker = deferral.checker && (deferral.checker._id === userId || deferral.checker === userId);
    
     // If all approvers have approved, creator and checker can approve
     if (allApproversApproved) {
@@ -600,8 +594,8 @@ const Deferrals = ({ userId }) => {
       const isChecker = selectedDeferral.checker && 
         (selectedDeferral.checker._id === userId || selectedDeferral.checker === userId);
       
-      const effectiveIsCreator = isCreator || (!selectedDeferral.creator && !selectedDeferral.checker);
-      const effectiveIsChecker = isChecker;
+      const effectiveIsCreator = isCreator;
+      const effectiveIsChecker = isChecker || (!selectedDeferral.creator && !selectedDeferral.checker);
       
       let response;
       
@@ -1386,10 +1380,10 @@ const Deferrals = ({ userId }) => {
     const isChecker = selectedDeferral.checker &&
       (selectedDeferral.checker._id === userId || selectedDeferral.checker === userId);
     
-    // On Creator page, assume user is creator if creator field not set (old deferrals)
-    // Or if user has creator role and creator field is set, they're the creator
-    const effectiveIsCreator = isCreator || (!selectedDeferral.creator && userRole === 'creator');
-    const effectiveIsChecker = isChecker;
+    // On Checker page, assume user is checker if checker field not set (old deferrals)
+    // Or if user has checker role and checker field is set, they're the checker
+    const effectiveIsCreator = isCreator;
+    const effectiveIsChecker = isChecker || (!selectedDeferral.checker && userRole === 'checker');
    
     // Fully Approved deferrals (Approved tab)
     if (isFullyApproved) {
@@ -1516,8 +1510,8 @@ const Deferrals = ({ userId }) => {
           ? 'Approve as Creator'
           : effectiveIsChecker && !effectiveIsCreator
           ? 'Approve as Checker'
-          : effectiveIsCreator
-          ? 'Approve as Creator'
+          : effectiveIsChecker
+          ? 'Approve as Checker'
           : 'Approve Deferral'}
       </Button>
     ];

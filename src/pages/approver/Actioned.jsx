@@ -1,17 +1,69 @@
 import React, { useEffect, useState } from "react";
-import { Table, Card, Empty, message, Modal, Typography, Spin, Tag, Descriptions, Space, Badge, Row, Col } from "antd";
+import { Table, Card, Empty, message, Modal, Typography, Spin, Tag, Descriptions, Space, Badge, Row, Col, Input, Button, Divider } from "antd";
 import dayjs from "dayjs";
-import { FileTextOutlined, MailOutlined, PhoneOutlined, ClockCircleOutlined } from "@ant-design/icons";
+import { FileTextOutlined, MailOutlined, PhoneOutlined, ClockCircleOutlined, SearchOutlined, CustomerServiceOutlined, EyeOutlined, CheckCircleOutlined, CloseCircleOutlined, DownloadOutlined, BankOutlined } from "@ant-design/icons";
 import { useSelector } from "react-redux";
 import deferralApi from "../../service/deferralApi";
+import getFacilityColumns from '../../utils/facilityColumns';
 
 const { Text } = Typography;
 
 const Actioned = () => {
 
   const PRIMARY_BLUE = "#164679";
+  const ACCENT_LIME = "#b5d334";
   const SUCCESS_GREEN = "#52c41a";
+  const ERROR_RED = "#ff4d4f";
   const WARNING_ORANGE = "#faad14";
+
+  const customTableStyles = `
+    .deferral-pending-table .ant-table-wrapper {
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(22, 70, 121, 0.08);
+      border: 1px solid #e0e0e0;
+    }
+    .deferral-pending-table .ant-table-thead > tr > th {
+      background-color: #f7f7f7 !important;
+      color: ${PRIMARY_BLUE} !important;
+      font-weight: 700;
+      fontSize: 13px;
+      padding: 14px 12px !important;
+      border-bottom: 3px solid ${ACCENT_LIME} !important;
+      border-right: none !important;
+    }
+    .deferral-pending-table .ant-table-tbody > tr > td {
+      border-bottom: 1px solid #f0f0f0 !important;
+      border-right: none !important;
+      padding: 12px 12px !important;
+      fontSize: 13px;
+      color: #333;
+    }
+    .deferral-pending-table .ant-table-tbody > tr.ant-table-row:hover > td {
+      background-color: rgba(181, 211, 52, 0.1) !important;
+      cursor: pointer;
+    }
+    .deferral-pending-table .ant-table-row:hover .ant-table-cell:last-child {
+      background-color: rgba(181, 211, 52, 0.1) !important;
+    }
+    .deferral-pending-table .ant-pagination .ant-pagination-item-active {
+      background-color: ${ACCENT_LIME} !important;
+      border-color: ${ACCENT_LIME} !important;
+    }
+    .deferral-pending-table .ant-pagination .ant-pagination-item-active a {
+      color: ${PRIMARY_BLUE} !important;
+      font-weight: 600;
+    }
+  `;
+
+  const modalCustomStyles = `
+    .ant-modal-header { background-color: ${PRIMARY_BLUE} !important; padding: 18px 24px !important; }
+    .ant-modal-title { color: white !important; font-size: 1.15rem !important; font-weight: 700 !important; letter-spacing: 0.5px; }
+    .ant-modal-close-x { color: white !important; }
+    .deferral-info-card .ant-card-head { border-bottom: 2px solid ${ACCENT_LIME} !important; }
+    .deferral-info-card .ant-descriptions-item-label { font-weight: 600 !important; color: #7e6496 !important; padding-bottom: 4px; }
+    .deferral-info-card .ant-descriptions-item-content { color: ${PRIMARY_BLUE} !important; font-weight: 700 !important; font-size: 13px !important; }
+  `;
 
   const token = useSelector((s) => s.auth.token);
   const [deferrals, setDeferrals] = useState([]);
@@ -20,6 +72,33 @@ const Actioned = () => {
   const [modalOpen, setModalOpen] = useState(false);
 
   const dclDocs = (selected && (selected.documents||[]).filter(d=> (d.isDCL) || (d.name && /dcl/i.test(d.name)) || (selected.dclNo && d.name && d.name.toLowerCase().includes((selected.dclNo||'').toLowerCase())))) || [];
+
+  const renderDclUpload = () => {
+    return (
+      <Card size="small" title={`Mandatory: DCL Upload ${dclDocs.length > 0 ? '✓' : ''}`} style={{ marginTop: 12 }}>
+        {dclDocs.length === 0 ? (
+          <div style={{ textAlign: 'center', color: WARNING_ORANGE }}>No DCL document uploaded</div>
+        ) : (
+          <div>
+            <div style={{ marginBottom: 10 }}>
+              {dclDocs.map((doc, i)=> (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: 10, borderBottom: '1px solid #f0f0f0' }}>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{doc.name}</div>
+                    <div style={{ fontSize: 12, color: '#666' }}>{doc.size ? `${(doc.size/1024).toFixed(2)} MB` : ''} {doc.uploadDate ? `• Uploaded: ${dayjs(doc.uploadDate).format('DD MMM YYYY HH:mm')}` : ''}</div>
+                  </div>
+                  <div><Tag color="red">DCL Document</Tag></div>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: 8, marginTop: 8, backgroundColor: '#f6ffed', borderRadius: 4 }}>
+              <div style={{ fontWeight: 700, color: SUCCESS_GREEN }}>✓ DCL document ready: {dclDocs[0].name}</div>
+            </div>
+          </div>
+        )}
+      </Card>
+    );
+  };
 
   const safe = (v) => {
     if (v === null || v === undefined) return '';
@@ -42,6 +121,32 @@ const Actioned = () => {
 
   useEffect(() => {
     fetchActioned();
+
+    // Listen for rejected/approved deferrals dispatched from other pages (e.g., approver MyQueue)
+    const handler = (e) => {
+      try {
+        const updated = e && e.detail ? e.detail : null;
+        if (!updated || !updated._id) return;
+
+        const s = (updated.status || '').toLowerCase();
+        // If the deferral was just rejected or approved, add it to the actioned list
+        if (s === 'rejected' || s === 'deferral_rejected' || s === 'approved' || s === 'deferral_approved') {
+          setDeferrals(prev => {
+            const exists = prev.some(d => String(d._id) === String(updated._id));
+            if (exists) {
+              return prev.map(d => d._id === updated._id ? updated : d);
+            }
+            // Add to the top if it's a newly rejected/approved item
+            return [updated, ...prev];
+          });
+        }
+      } catch (err) {
+        console.warn('deferral:updated handler error in Actioned', err);
+      }
+    };
+
+    window.addEventListener('deferral:updated', handler);
+    return () => window.removeEventListener('deferral:updated', handler);
   }, []);
 
   // Poll the deferral while the modal is open so the approval flow stays live
@@ -73,55 +178,221 @@ const Actioned = () => {
     }
   };
 
+  const PROCESSING_BLUE = "#1890ff";
+
   const columns = [
-    { title: 'Deferral No', dataIndex: 'deferralNumber', key: 'deferralNumber', render: (val) => <Text strong>{val}</Text> },
-    { title: 'Customer', dataIndex: 'customerName', key: 'customerName', render: (val) => <span>{safe(val)}</span> },
-    { title: 'DCL No', dataIndex: 'dclNumber', key: 'dclNumber', render: (val) => <span>{safe(val)}</span> },
-    { title: 'Document', dataIndex: 'document', key: 'document', render: (val) => <span>{safe(val)}</span> },
-    { title: 'Days Sought', dataIndex: 'daysSought', key: 'daysSought', render: (d) => <Text>{d} days</Text> },
-    { title: 'Status', dataIndex: 'status', key: 'status' },
-    { title: 'Actioned At', dataIndex: 'updatedAt', key: 'updatedAt', render: (d, r) => <Text>{dayjs(r.updatedAt || r.approvedAt || r.updatedAt).format('DD MMM YYYY HH:mm')}</Text> }
+    {
+      title: "Deferral No",
+      dataIndex: "deferralNumber",
+      key: "deferralNumber",
+      width: 140,
+      render: (text) => (
+        <div style={{ fontWeight: "bold", color: PRIMARY_BLUE, display: "flex", alignItems: "center", gap: 8 }}>
+          <FileTextOutlined style={{ color: '#7e6496' }} />
+          {text}
+        </div>
+      )
+    },
+    {
+      title: "DCL No",
+      dataIndex: "dclNumber",
+      key: "dclNumber",
+      width: 120,
+      render: (text) => <div style={{ color: '#7e6496', fontWeight: 500, fontSize: 13 }}>{text}</div>
+    },
+    {
+      title: "Customer Name",
+      dataIndex: "customerName",
+      key: "customerName",
+      width: 220,
+      render: (text, record) => (
+        <div style={{ fontWeight: 600, color: PRIMARY_BLUE, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <CustomerServiceOutlined style={{ fontSize: 12 }} />
+          <div>
+            <div>{text}</div>
+            <div style={{ fontSize: 11, color: '#666' }}>{record.businessName}</div>
+            <div style={{ fontSize: 10, color: '#999' }}>{record.customerNumber}</div>
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "Loan Type",
+      dataIndex: "loanType",
+      key: "loanType",
+      width: 120,
+      render: (v) => <div style={{ fontSize: 12, fontWeight: 500 }}>{v}</div>
+    },
+    {
+      title: "Status",
+      dataIndex: "status",
+      key: "status",
+      width: 120,
+      render: (status) => {
+        const statusConfig = {
+          pending_approval: { color: WARNING_ORANGE, text: "Pending", icon: <ClockCircleOutlined /> },
+          in_review: { color: PROCESSING_BLUE, text: "In Review", icon: <ClockCircleOutlined /> },
+          approved: { color: SUCCESS_GREEN, text: "Approved", icon: <CheckCircleOutlined /> },
+          rejected: { color: ERROR_RED, text: "Rejected", icon: <CloseCircleOutlined /> },
+        };
+        const config = statusConfig[status] || { color: 'default', text: status };
+        return (
+          <div style={{ fontSize: 12, fontWeight: 'bold', color: config.color || '#666', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {config.icon}
+            {config.text}
+          </div>
+        );
+      }
+    },
+    {
+      title: "Days Sought",
+      dataIndex: "daysSought",
+      key: "daysSought",
+      width: 100,
+      align: 'center',
+      render: (days) => (
+        <div style={{ fontWeight: 'bold', color: days > 45 ? ERROR_RED : days > 30 ? WARNING_ORANGE : PRIMARY_BLUE, fontSize: 14, backgroundColor: days > 45 ? '#fff2f0' : days > 30 ? '#fff7e6' : '#f0f7ff', padding: '4px 8px', borderRadius: 4, display: 'inline-block' }}>{days} days</div>
+      )
+    },
+    {
+      title: "SLA",
+      dataIndex: "slaExpiry",
+      key: "slaExpiry",
+      width: 120,
+      render: (date) => {
+        if (!date) return <div style={{ fontSize: 11, color: '#999' }}>N/A</div>;
+        const daysLeft = dayjs(date).diff(dayjs(), 'days');
+        const hoursLeft = dayjs(date).diff(dayjs(), 'hours');
+        let color = SUCCESS_GREEN; let text = `${daysLeft}d`;
+        if (daysLeft <= 0 && hoursLeft <= 0) { color = ERROR_RED; text = 'Expired'; }
+        else if (daysLeft <= 0) { color = ERROR_RED; text = `${hoursLeft}h`; }
+        else if (daysLeft <= 1) { color = ERROR_RED; text = `${daysLeft}d`; }
+        else if (daysLeft <= 3) { color = WARNING_ORANGE; text = `${daysLeft}d`; }
+        return <Tag color={color} style={{ fontWeight: 'bold', fontSize: 11, minWidth: 50, textAlign: 'center' }}>{text}</Tag>;
+      }
+    },
+    {
+      title: 'Actioned At',
+      dataIndex: 'updatedAt',
+      key: 'updatedAt',
+      width: 160,
+      render: (d, r) => <Text>{dayjs(r.updatedAt || r.approvedAt || r.updatedAt).format('DD MMM YYYY HH:mm')}</Text>
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 80,
+      fixed: 'right',
+      render: (_, record) => (
+        <Button type="link" size="small" onClick={() => { setSelected(record); setModalOpen(true); }} style={{ color: PRIMARY_BLUE, fontWeight: 500 }}><EyeOutlined /> Review</Button>
+      )
+    }
   ];
 
   return (
-    <div>
-      <Card style={{ marginBottom: 16 }}>
-        <h2 style={{ margin: 0 }}>Actioned</h2>
-        <p style={{ marginTop: 6, color: '#666' }}>Items you have approved or rejected</p>
+    <div style={{ padding: 24 }}>
+      <style>{customTableStyles}</style>
+      <style>{modalCustomStyles}</style>
+
+      <Card
+        style={{
+          marginBottom: 24,
+          borderRadius: 8,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+          borderLeft: `4px solid ${ACCENT_LIME || '#b5d334'}`
+        }}
+        styles={{ body: { padding: 16 } }}
+      >
+        <Row justify="space-between" align="middle">
+          <Col>
+            <h2 style={{ margin: 0, color: PRIMARY_BLUE, display: "flex", alignItems: "center", gap: 12 }}>
+              Completed
+              <Badge
+                count={deferrals.length}
+                style={{
+                  backgroundColor: ACCENT_LIME || '#b5d334',
+                  fontSize: 12
+                }}
+              />
+            </h2>
+            <p style={{ margin: "4px 0 0", color: "#666", fontSize: 14 }}>
+              Items you have approved or rejected
+            </p>
+          </Col>
+        </Row>
+      </Card>
+
+      {/* Filters */}
+      <Card
+        style={{
+          marginBottom: 16,
+          background: "#fafafa",
+          border: `1px solid ${PRIMARY_BLUE}20`,
+          borderRadius: 8
+        }}
+        size="small"
+      >
+        <Row gutter={[16, 16]} align="middle">
+          <Col xs={24} sm={12} md={8}>
+            <Input
+              placeholder="Search by Customer, DCL, or ID"
+              prefix={<SearchOutlined />}
+              onChange={(e) => { /* Implement search filter if desired */ }}
+              allowClear
+              size="middle"
+            />
+          </Col>
+          <Col xs={24} sm={12} md={4}>
+            <Button onClick={() => { /* clear filters */ }} style={{ width: '100%' }} size="middle">Clear Filters</Button>
+          </Col>
+        </Row>
       </Card>
 
       <Card>
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 32 }}><Spin /></div>
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: 40 }}>
+            <Spin />
+          </div>
         ) : deferrals.length === 0 ? (
-          <Empty description="No actioned deferrals" />
-        ) : (
-          <Table
-            columns={columns}
-            dataSource={deferrals}
-            rowKey={(r) => r._id || r.id}
-            onRow={(record) => ({
-              onClick: () => {
-                setSelected(record);
-                setModalOpen(true);
-              },
-            })}
-            pagination={{ pageSize: 10 }}
+          <Empty
+            description={
+              <div>
+                <p style={{ fontSize: 16, marginBottom: 8 }}>No completed deferrals</p>
+                <p style={{ color: "#999" }}>All actioned items are shown here</p>
+              </div>
+            }
+            style={{ padding: 40 }}
           />
+        ) : (
+          <div className="deferral-pending-table" style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+            <Table
+              columns={columns}
+              dataSource={deferrals}
+              rowKey={(r) => r._id || r.id}
+              size="middle"
+              pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ["10","20","50"], position: ["bottomCenter"] }}
+              scroll={{ x: 1200 }}
+              onRow={(record) => ({
+                onClick: () => { setSelected(record); setModalOpen(true); }
+              })}
+              style={{ flex: 1 }}
+            />
+          </div>
         )}
       </Card>
 
       <Modal
-        title={selected ? `Deferral Request: ${selected.deferralNumber}` : 'Deferral'}
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BankOutlined /> <span>Deferral Request: {selected?.deferralNumber}</span></div>}
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         footer={null}
         width={950}
+        bodyStyle={{ padding: '0 24px 24px' }}
       >
         {selected && (
           <div style={{ maxHeight: '75vh', overflowY: 'auto' }}>
             {/* Header */}
-            <Card size="small" style={{ borderBottom: '1px solid #f0f0f0' }} bodyStyle={{ padding: 14 }}>
+            <Card size="small" style={{ borderBottom: '1px solid #f0f0f0' }} styles={{ body: { padding: 14 } }}>
               <Row justify="space-between" align="middle">
                 <Col>
                   <div style={{ fontSize: 18, fontWeight: 700, color: PRIMARY_BLUE }}>{`Deferral Request: ${selected.deferralNumber}`}</div>
@@ -155,7 +426,7 @@ const Actioned = () => {
                       <Descriptions.Item label="Deferral Number"><div style={{ fontWeight: 700, color: PRIMARY_BLUE }}>{selected.deferralNumber}</div></Descriptions.Item>
                       <Descriptions.Item label="DCL No">{selected.dclNo || selected.dclNumber || <Tag color="error">Missing — please input DCL No</Tag>}</Descriptions.Item>
                       <Descriptions.Item label="Status"><Tag color={selected.status === 'approved' ? 'success' : selected.status === 'rejected' ? 'error' : 'processing'} style={{ fontWeight: 700 }}>{selected.status}</Tag></Descriptions.Item>
-                      <Descriptions.Item label="Deferral Title"><div style={{ fontWeight: 600 }}>{selected.deferralTitle || selected.customerName}</div></Descriptions.Item>
+                      <Descriptions.Item label="Customer Name"><div style={{ fontWeight: 600 }}>{selected.customerName}</div></Descriptions.Item>
                       <Descriptions.Item label="Loan Amount">{selected.loanAmount ? (selected.loanAmount > 1000 ? `KSh ${selected.loanAmount.toLocaleString()}` : `${selected.loanAmount} M`) : 'Not specified'}{selected.loanAmount && selected.loanAmount <= 75 && <div style={{ color: SUCCESS_GREEN, fontWeight: 700, marginTop: 6 }}>Under 75 million</div>}</Descriptions.Item>
                       <Descriptions.Item label="Days Sought"><div style={{ fontWeight: 700 }}>{selected.daysSought || 0} days</div></Descriptions.Item>
                       <Descriptions.Item label="Next Due Date">{selected.nextDueDate ? dayjs(selected.nextDueDate).format('DD MMM YYYY') : 'Not calculated'}</Descriptions.Item>
@@ -165,47 +436,42 @@ const Actioned = () => {
                     {selected.deferralDescription && (<div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}><div style={{ fontWeight: 700, marginBottom: 8 }}>Deferral Description</div><div style={{ padding: 12, backgroundColor: '#f8f9fa', borderRadius: 6 }}>{selected.deferralDescription}</div></div>)}
                   </Card>
 
-                  {/* Documents Requested */}
-                  <Card size="small" title={`Documents Requested for Deferrals (${(selected.selectedDocuments||[]).length})`} style={{ marginTop: 12 }}>
-                    {(selected.selectedDocuments||[]).map((doc, idx) => (
-                      <div key={`req-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', padding: 12, borderBottom: '1px solid #f0f0f0' }}>
-                        <div>
-                          <div style={{ fontWeight: 700 }}>{typeof doc === 'string' ? doc : (doc.name || doc.label || 'Document')}</div>
-                          <div style={{ fontSize: 12, color: '#666', marginTop: 6 }}>Type: {doc.type || 'Secondary'}</div>
-                        </div>
-                        <div style={{ color: '#999' }}><Tag color="orange">Requested</Tag></div>
-                      </div>
-                    ))}
-                  </Card>
+                  {selected.facilities && selected.facilities.length > 0 && (
+                    <Card size="small" title={`Facility Details (${selected.facilities.length})`} style={{ marginTop: 12 }}>
+                      <Table dataSource={selected.facilities} columns={getFacilityColumns()} pagination={false} size="small" rowKey={(r)=> r.facilityNumber || r._id || `facility-${Math.random().toString(36).slice(2)}`} scroll={{ x: 600 }} />
+                    </Card>
+                  )}
 
                   {/* DCL Upload */}
-                  <Card size="small" title={`Mandatory: DCL Upload ${dclDocs.length > 0 ? '✓' : ''}`} style={{ marginTop: 12 }}>
-                    {dclDocs.length === 0 ? (
-                      <div style={{ textAlign: 'center', color: WARNING_ORANGE }}>No DCL document uploaded</div>
-                    ) : (
-                      <div>
-                        <div style={{ marginBottom: 10 }}>
-                          {dclDocs.map((doc, i)=> (
+                  {renderDclUpload()}
+
+                  {/* Additional Documents */}
+                  {(() => {
+                    const additionalDocs = (selected.documents || []).filter(d => {
+                      const name = (d.name || '').toString().toLowerCase();
+                      const isDCLName = name.includes('dcl');
+                      const matchesDclNo = selected.dclNo && name.includes((selected.dclNo || '').toString().toLowerCase());
+                      return !(d.isDCL || isDCLName || matchesDclNo);
+                    });
+                    const count = additionalDocs.length;
+                    return (
+                      <Card size="small" title={<span style={{ color: PRIMARY_BLUE }}>Additional Documents ({count})</span>} style={{ marginTop: 12 }}>
+                        {count === 0 ? (
+                          <div style={{ color: '#999' }}>No additional documents uploaded</div>
+                        ) : (
+                          additionalDocs.map((doc, i) => (
                             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: 10, borderBottom: '1px solid #f0f0f0' }}>
                               <div>
                                 <div style={{ fontWeight: 700 }}>{doc.name}</div>
                                 <div style={{ fontSize: 12, color: '#666' }}>{doc.size ? `${(doc.size/1024).toFixed(2)} MB` : ''} {doc.uploadDate ? `• Uploaded: ${dayjs(doc.uploadDate).format('DD MMM YYYY HH:mm')}` : ''}</div>
                               </div>
-                              <div><Tag color="red">DCL Document</Tag></div>
+                              <div><Tag color="cyan">Additional</Tag></div>
                             </div>
-                          ))}
-                        </div>
-                        <div style={{ padding: 8, marginTop: 8, backgroundColor: '#f6ffed', borderRadius: 4 }}>
-                          <div style={{ fontWeight: 700, color: SUCCESS_GREEN }}>✓ DCL document ready: {dclDocs[0].name}</div>
-                        </div>
-                      </div>
-                    )}
-                  </Card>
-
-                  {/* Additional Documents */}
-                  <Card size="small" title={`Additional Documents (${(selected.documents||[]).filter(d=> !((d.isDCL) || (d.name && /dcl/i.test(d.name)) || (selected.dclNo && d.name && d.name.toLowerCase().includes((selected.dclNo||'').toLowerCase())))).length})`} style={{ marginTop: 12 }}>
-                    {(selected.documents||[]).filter(d=> !((d.isDCL) || (d.name && /dcl/i.test(d.name)) || (selected.dclNo && d.name && d.name.toLowerCase().includes((selected.dclNo||'').toLowerCase())))).length === 0 ? (<div style={{ color: '#999' }}>No additional documents uploaded</div>) : ((selected.documents||[]).filter(d=> !((d.isDCL) || (d.name && /dcl/i.test(d.name)) || (selected.dclNo && d.name && d.name.toLowerCase().includes((selected.dclNo||'').toLowerCase())))).map((doc, i)=> (<div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: 10, borderBottom: '1px solid #f0f0f0' }}><div><div style={{ fontWeight: 700 }}>{doc.name}</div><div style={{ fontSize: 12, color: '#666' }}>{doc.size ? `${(doc.size/1024).toFixed(2)} MB` : ''} {doc.uploadDate ? `• Uploaded: ${dayjs(doc.uploadDate).format('DD MMM YYYY HH:mm')}` : ''}</div></div><div><Tag color="cyan">Additional</Tag></div></div>))) }
-                  </Card>
+                          ))
+                        )}
+                      </Card>
+                    );
+                  })()}
 
                   {/* Approval Flow */}
                   <Card size="small" title="Approval Flow" style={{ marginTop: 12 }}>
@@ -249,6 +515,3 @@ const Actioned = () => {
 };
 
 export default Actioned;
-
-
-
