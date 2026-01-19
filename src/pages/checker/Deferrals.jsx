@@ -342,6 +342,8 @@ const Deferrals = ({ userId }) => {
   // Action states
   const [actionLoading, setActionLoading] = useState(false);
   const [creatorComment, setCreatorComment] = useState("");
+  const [newComment, setNewComment] = useState("");
+  const [postingComment, setPostingComment] = useState(false);
 
   // Fetch deferrals from API
   const fetchDeferrals = async () => {
@@ -382,7 +384,7 @@ const Deferrals = ({ userId }) => {
     try {
       const q = new URLSearchParams(window.location.search);
       const a = q.get('active');
-      if (a === 'rejected' || a === 'approved' || a === 'pending' || a === 'closed' || a === 'returned') return a;
+      if (a === 'approved' || a === 'pending' || a === 'completed') return a;
     } catch (e) {}
     return 'pending';
   });
@@ -399,12 +401,19 @@ const Deferrals = ({ userId }) => {
         setDeferrals(prev => {
           const exists = prev.some(d => String(d._id) === String(updated._id));
           if (exists) {
+            // Deferral already exists, update it
             return prev.map(d => d._id === updated._id ? { ...d, ...updated } : d);
           }
-          const stored = JSON.parse(localStorage.getItem('user') || 'null');
-          const myId = stored?.user?._id || userId;
-          const isMine = updated.requestor && ((updated.requestor._id && String(updated.requestor._id) === String(myId)) || String(updated.requestor) === String(myId));
-          if (isMine) return [updated, ...prev];
+          
+          // Check if this is a deferral that's now approved by creator (should appear in checker's pending list)
+          const hasCreatorApproved = updated.creatorApprovalStatus === 'approved';
+          const hasCheckerApproved = updated.checkerApprovalStatus === 'approved';
+          
+          // If creator approved but checker hasn't, add it to the list
+          if (hasCreatorApproved && !hasCheckerApproved) {
+            return [updated, ...prev];
+          }
+          
           return prev;
         });
 
@@ -413,20 +422,13 @@ const Deferrals = ({ userId }) => {
           setSelectedDeferral(prev => ({ ...prev, ...updated }));
         }
 
-        const myUserId = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')).user._id : null;
-        const isMine = updated.requestor && ((updated.requestor._id && String(updated.requestor._id) === String(myUserId)) || String(updated.requestor) === String(myUserId));
         const s = (updated.status || '').toLowerCase();
-        if ((s === 'rejected' || s === 'deferral_rejected') && isMine) {
-          setActiveTab('rejected');
-        }
-        if ((['closed','deferral_closed','closed_by_co','closed_by_creator'].includes(s)) && isMine) {
-          setActiveTab('closed');
-        }
-        if ((s === 'approved' || s === 'deferral_approved') && isMine) {
+        const hasCreatorApproved = updated.creatorApprovalStatus === 'approved';
+        const hasCheckerApproved = updated.checkerApprovalStatus === 'approved';
+        
+        // If fully approved by both, switch to approved tab
+        if (hasCreatorApproved && hasCheckerApproved) {
           setActiveTab('approved');
-        }
-        if ((['returned_for_rework','returned_by_creator','returned_by_checker'].includes(s)) && isMine) {
-          setActiveTab('returned');
         }
 
       } catch (err) {
@@ -470,44 +472,31 @@ const Deferrals = ({ userId }) => {
   }, [deferrals, filters, activeTab]);
 
   const applyFilters = () => {
-    const pendingStatuses = ['pending_approval', 'in_review', 'deferral_requested'];
-    const returnedStatuses = ['returned_for_rework', 'returned_by_creator', 'returned_by_checker'];
-    const approvedStatuses = ['approved', 'deferral_approved'];
-    const rejectedStatuses = ['rejected', 'deferral_rejected'];
-    const closedStatuses = ['closed', 'deferral_closed', 'closed_by_co', 'closed_by_creator'];
+    const approvedStatusesForChecker = ['approved', 'deferral_approved'];
+    const completedStatuses = ['closed', 'deferral_closed', 'closed_by_co', 'closed_by_creator'];
 
     let base = deferrals.filter(d => {
       const s = (d.status || '').toString().toLowerCase();
+      
       if (activeTab === 'pending') {
-        // PENDING tab: Show all deferrals that are NOT fully approved AND NOT rejected/closed/returned
+        // PENDING tab: Show only deferrals that are approved by CO Creator but NOT yet approved by Checker
         const hasCreatorApproved = d.creatorApprovalStatus === 'approved';
         const hasCheckerApproved = d.checkerApprovalStatus === 'approved';
-        const allApproversApproved = d.allApproversApproved === true;
-       
-        const isFullyApproved = hasCreatorApproved && hasCheckerApproved && allApproversApproved;
-       
-        // If it's fully approved, don't show in pending
-        if (isFullyApproved) return false;
-       
-        // Show if status is pending, or if any approver/creator/checker is still pending
-        return pendingStatuses.includes(s) ||
-               !hasCreatorApproved ||
-               !hasCheckerApproved ||
-               !allApproversApproved;
+        
+        // Only show if creator has approved AND checker has NOT approved
+        return hasCreatorApproved && !hasCheckerApproved;
       }
-      if (activeTab === 'returned') return returnedStatuses.includes(s);
+      
       if (activeTab === 'approved') {
         // APPROVED tab: Show ONLY fully approved deferrals
         const hasCreatorApproved = d.creatorApprovalStatus === 'approved';
         const hasCheckerApproved = d.checkerApprovalStatus === 'approved';
-        const allApproversApproved = d.allApproversApproved === true;
-       
-        const isFullyApproved = hasCreatorApproved && hasCheckerApproved && allApproversApproved;
-       
-        // Only show if fully approved by all parties
-        return isFullyApproved;
+        
+        // Only show if both creator and checker have approved
+        return hasCreatorApproved && hasCheckerApproved;
       }
-      if (activeTab === 'closed') return closedStatuses.includes(s);
+      
+      if (activeTab === 'completed') return completedStatuses.includes(s);
       return true;
     });
 
@@ -566,6 +555,56 @@ const Deferrals = ({ userId }) => {
     }
    
     return false;
+  };
+
+  // Handle posting comments
+  const handlePostComment = async () => {
+    if (!newComment.trim()) {
+      message.error('Please enter a comment before posting');
+      return;
+    }
+
+    if (!selectedDeferral || !selectedDeferral._id) {
+      message.error('No deferral selected');
+      return;
+    }
+
+    setPostingComment(true);
+    try {
+      const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      const commentData = {
+        text: newComment.trim(),
+        author: {
+          name: currentUser.name || currentUser.user?.name || 'User',
+          role: currentUser.role || currentUser.user?.role || 'user'
+        },
+        createdAt: new Date().toISOString()
+      };
+
+      // Post comment to the backend
+      await deferralApi.postComment(selectedDeferral._id, commentData, token);
+
+      message.success('Comment posted successfully');
+      
+      // Clear the input
+      setNewComment('');
+
+      // Refresh the deferral to show the new comment
+      const refreshedDeferral = await deferralApi.getDeferralById(selectedDeferral._id, token);
+      setSelectedDeferral(refreshedDeferral);
+      
+      // Update in the list
+      const updatedDeferrals = deferrals.map(d => 
+        d._id === refreshedDeferral._id ? refreshedDeferral : d
+      );
+      setDeferrals(updatedDeferrals);
+    } catch (error) {
+      console.error('Failed to post comment:', error);
+      message.error(error.message || 'Failed to post comment');
+    } finally {
+      setPostingComment(false);
+    }
   };
 
   // Handle deferral actions
@@ -1589,24 +1628,18 @@ const Deferrals = ({ userId }) => {
           <Tabs.TabPane tab={`Pending Deferrals (${deferrals.filter(d => {
             const hasCreatorApproved = d.creatorApprovalStatus === 'approved';
             const hasCheckerApproved = d.checkerApprovalStatus === 'approved';
-            const allApproversApproved = d.allApproversApproved === true;
-            const isFullyApproved = hasCreatorApproved && hasCheckerApproved && allApproversApproved;
-            return !isFullyApproved && ['pending_approval','in_review','deferral_requested'].includes((d.status||'').toString().toLowerCase());
+            return hasCreatorApproved && !hasCheckerApproved;
           }).length})`} key="pending" />
-          <Tabs.TabPane tab={`Returned for Re-work (${deferrals.filter(d => ['returned_for_rework','returned_by_creator','returned_by_checker'].includes((d.status||'').toString().toLowerCase())).length})`} key="returned" />
           <Tabs.TabPane tab={`Approved Deferrals (${deferrals.filter(d => {
             const hasCreatorApproved = d.creatorApprovalStatus === 'approved';
             const hasCheckerApproved = d.checkerApprovalStatus === 'approved';
-            const allApproversApproved = d.allApproversApproved === true;
-            const isFullyApproved = hasCreatorApproved && hasCheckerApproved && allApproversApproved;
-            return isFullyApproved;
+            return hasCreatorApproved && hasCheckerApproved;
           }).length})`} key="approved" />
-          <Tabs.TabPane tab={`Completed Deferrals (${deferrals.filter(d => ['closed','deferral_closed','closed_by_co','closed_by_creator'].includes((d.status||'').toString().toLowerCase())).length})`} key="closed" />
+          <Tabs.TabPane tab={`Completed Deferrals (${deferrals.filter(d => ['closed','deferral_closed','closed_by_co','closed_by_creator'].includes((d.status||'').toString().toLowerCase())).length})`} key="completed" />
         </Tabs>
         <div style={{ marginTop: 8, fontWeight: 700, color: PRIMARY_BLUE }}>
           {activeTab === 'pending' ? `Pending Deferrals (${filteredDeferrals.length} items)`
-            : activeTab === 'returned' ? `Returned for Re-work (${filteredDeferrals.length} items)`
-            : activeTab === 'approved' ? `Fully Approved Deferrals (${filteredDeferrals.length} items)`
+            : activeTab === 'approved' ? `Approved Deferrals (${filteredDeferrals.length} items)`
             : `Completed Deferrals (${filteredDeferrals.length} items)`}
         </div>
       </div>
@@ -1622,17 +1655,15 @@ const Deferrals = ({ userId }) => {
             <div>
               <p style={{ fontSize: 16, marginBottom: 8 }}>
                 {activeTab === 'pending' ? 'No pending deferrals found'
-                  : activeTab === 'returned' ? 'No returned deferrals found'
-                  : activeTab === 'approved' ? 'No fully approved deferrals found'
+                  : activeTab === 'approved' ? 'No approved deferrals found'
                   : 'No completed deferrals found'}
               </p>
               <p style={{ color: "#999" }}>
                 {filters.search || filters.priority !== 'all'
                   ? 'Try changing your filters'
-                  : (activeTab === 'pending' ? 'All deferral requests have been processed'
-                    : activeTab === 'returned' ? 'No deferrals have been returned for re-work'
-                    : activeTab === 'approved' ? 'No deferrals have been fully approved yet'
-                    : 'No deferrals have been closed by CO')}
+                  : (activeTab === 'pending' ? 'No deferrals approved by CO Creator awaiting your review'
+                    : activeTab === 'approved' ? 'No fully approved deferrals yet'
+                    : 'No deferrals have been completed')}
               </p>
             </div>
           }
@@ -2537,6 +2568,47 @@ const Deferrals = ({ userId }) => {
                   />
                 </Card>
               )}
+
+              {/* Comments Input Section */}
+              <Card size="small" style={{ marginBottom: 24, marginTop: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+                  <div style={{
+                    width: 4,
+                    height: 20,
+                    backgroundColor: ACCENT_LIME,
+                    marginRight: 12,
+                    borderRadius: 2
+                  }} />
+                  <h4 style={{ color: PRIMARY_BLUE, margin: 0 }}>Comments</h4>
+                </div>
+                
+                <TextArea
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  rows={4}
+                  placeholder="Add any notes or comments for the deferral (optional)"
+                  maxLength={500}
+                  showCount
+                />
+                
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12, gap: 8 }}>
+                  <Button
+                    type="default"
+                    onClick={() => setNewComment('')}
+                    disabled={postingComment}
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    type="primary"
+                    onClick={handlePostComment}
+                    loading={postingComment}
+                    disabled={!newComment.trim()}
+                  >
+                    Post Comment
+                  </Button>
+                </div>
+              </Card>
 
               <div style={{ marginTop: 24 }}>
                 <h4 style={{ color: PRIMARY_BLUE, marginBottom: 16 }}>Comment Trail & History</h4>

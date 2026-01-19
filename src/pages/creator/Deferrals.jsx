@@ -24,7 +24,8 @@ import {
   Descriptions,
   Typography,
   Input as AntInput,
-  Collapse
+  Collapse,
+  Alert
 } from "antd";
 import {
   SearchOutlined,
@@ -342,6 +343,10 @@ const Deferrals = ({ userId }) => {
   // Action states
   const [actionLoading, setActionLoading] = useState(false);
   const [creatorComment, setCreatorComment] = useState("");
+  const [newComment, setNewComment] = useState("");
+  const [postingComment, setPostingComment] = useState(false);
+  const [approvalConfirmModalVisible, setApprovalConfirmModalVisible] = useState(false);
+  const [disabledDeferralIds, setDisabledDeferralIds] = useState(new Set());
 
   // Fetch deferrals from API
   const fetchDeferrals = async () => {
@@ -576,11 +581,16 @@ const Deferrals = ({ userId }) => {
 
   // Handle deferral actions
   const handleApproveDeferral = async () => {
-    if (!creatorComment.trim()) {
-      message.error("Please enter a comment before approving");
+    if (!selectedDeferral) {
+      message.error("No deferral selected");
       return;
     }
 
+    // Show confirmation modal
+    setApprovalConfirmModalVisible(true);
+  };
+
+  const handleConfirmApproval = async () => {
     if (!selectedDeferral) {
       message.error("No deferral selected");
       return;
@@ -588,11 +598,23 @@ const Deferrals = ({ userId }) => {
 
     setActionLoading(true);
     try {
+      console.log('=== Starting handleConfirmApproval ===');
+      console.log('Token:', token);
+      console.log('Selected Deferral:', selectedDeferral);
+      
       const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
       const userId = currentUser._id || currentUser.user?._id;
+      const userRole = currentUser.role || currentUser.user?.role;
+      
+      console.log('Current User:', currentUser);
+      console.log('User ID:', userId);
+      console.log('User Role:', userRole);
       
       const hasCreatorApproved = selectedDeferral.creatorApprovalStatus === 'approved';
       const hasCheckerApproved = selectedDeferral.checkerApprovalStatus === 'approved';
+      
+      console.log('Has Creator Approved:', hasCreatorApproved);
+      console.log('Has Checker Approved:', hasCheckerApproved);
       
       // Check if this is creator or checker based on explicit fields, or fallback to page context
       const isCreator = selectedDeferral.creator && 
@@ -600,47 +622,90 @@ const Deferrals = ({ userId }) => {
       const isChecker = selectedDeferral.checker && 
         (selectedDeferral.checker._id === userId || selectedDeferral.checker === userId);
       
-      const effectiveIsCreator = isCreator || (!selectedDeferral.creator && !selectedDeferral.checker);
-      const effectiveIsChecker = isChecker;
+      // Since we're on the creator page, assume user is a creator if role matches or if no creator is assigned
+      const effectiveIsCreator = isCreator || userRole === 'creator' || !selectedDeferral.creator;
+      const effectiveIsChecker = isChecker || userRole === 'checker';
+      
+      console.log('Is Creator:', isCreator);
+      console.log('Is Checker:', isChecker);
+      console.log('Effective Is Creator:', effectiveIsCreator);
+      console.log('Effective Is Checker:', effectiveIsChecker);
       
       let response;
       
-      if (effectiveIsCreator && !hasCreatorApproved) {
-        // Creator approval
+      // Try to approve as creator first (since this is the creator page)
+      if (effectiveIsCreator) {
+        console.log('Calling approveByCreator...');
         response = await deferralApi.approveByCreator(selectedDeferral._id, {
-          comment: creatorComment
+          comment: creatorComment,
+          creatorId: userId  // Send current user as creator
         }, token);
-      } else if (effectiveIsChecker && !hasCheckerApproved) {
-        // Checker approval
+        console.log('Creator approval response:', response);
+      } else if (effectiveIsChecker) {
+        console.log('Calling approveByChecker...');
+        // Then try as checker
         response = await deferralApi.approveByChecker(selectedDeferral._id, {
-          comment: creatorComment
+          comment: creatorComment,
+          checkerId: userId  // Send current user as checker
         }, token);
+        console.log('Checker approval response:', response);
+      } else {
+        console.error('Unable to determine user role');
+        throw new Error("Unable to determine user role. Please contact support.");
       }
       
-      if (response && response.success) {
+      if (response) {
+        console.log('=== Approval Response Received ===');
+        // Response received - could be successful
+        const updatedDeferral = response.deferral || response;
+        
+        console.log('Updated Deferral:', updatedDeferral);
+        
         message.success(response.message || "Deferral approved successfully!");
         
-        // Update local state with the new deferral
-        const updatedDeferral = response.deferral;
+        // Keep the deferral in the list but add to disabled set so buttons are greyed out
+        setDisabledDeferralIds(prev => new Set(prev).add(selectedDeferral._id));
+        
+        // Update the deferral in the list with the response
         const updatedDeferrals = deferrals.map(d => 
           d._id === updatedDeferral._id ? updatedDeferral : d
         );
         setDeferrals(updatedDeferrals);
-        setSelectedDeferral(updatedDeferral);
+        
         setCreatorComment("");
         
-        // Dispatch event for real-time updates
+        // Close the confirmation modal
+        console.log('Closing confirmation modal...');
+        setApprovalConfirmModalVisible(false);
+        
+        // Close the main modal after a short delay
+        setTimeout(() => {
+          console.log('Closing main modal...');
+          setModalVisible(false);
+          setSelectedDeferral(null);
+        }, 800);
+        
+        // Dispatch event for real-time updates to notify checker's page
         try {
+          console.log('Dispatching deferral:updated event...');
           window.dispatchEvent(new CustomEvent('deferral:updated', { 
             detail: updatedDeferral 
           }));
-        } catch(e) { /* ignore */ }
+          window.dispatchEvent(new CustomEvent('deferral:moved-to-checker', { 
+            detail: updatedDeferral 
+          }));
+        } catch(e) { 
+          console.error('Error dispatching events:', e);
+        }
       } else {
-        throw new Error(response?.message || "Failed to approve deferral");
+        console.error('No response from server');
+        throw new Error("No response from server");
       }
     } catch (error) {
+      console.error('=== Error in handleConfirmApproval ===', error);
       message.error(error.message || "Failed to approve deferral");
     } finally {
+      console.log('=== handleConfirmApproval finished ===');
       setActionLoading(false);
     }
   };
@@ -733,6 +798,55 @@ const Deferrals = ({ userId }) => {
       message.error(error.message || "Failed to reject deferral");
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handlePostComment = async () => {
+    if (!newComment.trim()) {
+      message.error('Please enter a comment before posting');
+      return;
+    }
+
+    if (!selectedDeferral || !selectedDeferral._id) {
+      message.error('No deferral selected');
+      return;
+    }
+
+    setPostingComment(true);
+    try {
+      const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      const commentData = {
+        text: newComment.trim(),
+        author: {
+          name: currentUser.name || currentUser.user?.name || 'User',
+          role: currentUser.role || currentUser.user?.role || 'user'
+        },
+        createdAt: new Date().toISOString()
+      };
+
+      // Post comment to the backend
+      await deferralApi.postComment(selectedDeferral._id, commentData, token);
+
+      message.success('Comment posted successfully');
+      
+      // Clear the input
+      setNewComment('');
+
+      // Refresh the deferral to show the new comment
+      const refreshedDeferral = await deferralApi.getDeferralById(selectedDeferral._id, token);
+      setSelectedDeferral(refreshedDeferral);
+      
+      // Update in the list
+      const updatedDeferrals = deferrals.map(d => 
+        d._id === refreshedDeferral._id ? refreshedDeferral : d
+      );
+      setDeferrals(updatedDeferrals);
+    } catch (error) {
+      console.error('Failed to post comment:', error);
+      message.error(error.message || 'Failed to post comment');
+    } finally {
+      setPostingComment(false);
     }
   };
 
@@ -1367,14 +1481,23 @@ const Deferrals = ({ userId }) => {
   // Determine modal footer buttons based on deferral status
   const getModalFooter = () => {
     if (!selectedDeferral) return null;
+    
+    // Check if this deferral has been approved and is waiting for checker
+    const isApprovedAndWaiting = disabledDeferralIds.has(selectedDeferral._id);
    
     const hasCreatorApproved = selectedDeferral.creatorApprovalStatus === 'approved';
     const hasCheckerApproved = selectedDeferral.checkerApprovalStatus === 'approved';
-    const allApproversApproved = selectedDeferral.allApproversApproved === true;
+    // Check if all approvers have approved - look at the approvals array
+    let allApproversApproved = false;
+    if (selectedDeferral.approvals && selectedDeferral.approvals.length > 0) {
+      allApproversApproved = selectedDeferral.approvals.every(app => app.status === 'approved');
+    } else if (selectedDeferral.allApproversApproved === true) {
+      allApproversApproved = true;
+    }
     const isFullyApproved = hasCreatorApproved && hasCheckerApproved && allApproversApproved;
     const isRejected = selectedDeferral.status === 'rejected' || selectedDeferral.status === 'deferral_rejected';
-    const isReturned = ['returned_for_rework', 'returned_by_creator', 'returned_by_checker'].includes(selectedDeferral.status);
-    const isClosed = ['closed', 'deferral_closed', 'closed_by_co', 'closed_by_creator'].includes(selectedDeferral.status);
+    const isReturned = ['returned_for_rework', 'returned_by_creator', 'returned_by_checker'].includes((selectedDeferral.status || '').toLowerCase());
+    const isClosed = ['closed', 'deferral_closed', 'closed_by_co', 'closed_by_creator'].includes((selectedDeferral.status || '').toLowerCase());
    
     // Get current user info
     const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
@@ -1390,20 +1513,71 @@ const Deferrals = ({ userId }) => {
     // Or if user has creator role and creator field is set, they're the creator
     const effectiveIsCreator = isCreator || (!selectedDeferral.creator && userRole === 'creator');
     const effectiveIsChecker = isChecker;
+    
+    // Common close button
+    const closeButton = (
+      <Button
+        key="close"
+        onClick={() => {
+          setModalVisible(false);
+          setSelectedDeferral(null);
+          setCreatorComment("");
+        }}
+      >
+        Close
+      </Button>
+    );
+   
+    // If deferral is approved and waiting for checker, grey out all buttons except download
+    if (isApprovedAndWaiting) {
+      return [
+        closeButton,
+        <Button
+          key="download"
+          type="default"
+          onClick={downloadDeferralAsPDF}
+          icon={<DownloadOutlined />}
+          style={{ marginRight: 'auto' }}
+        >
+          Download
+        </Button>,
+
+        <Button
+          key="return_for_rework"
+          danger
+          icon={<ReloadOutlined />}
+          disabled
+        >
+          Return for Re-work
+        </Button>,
+
+        <Button
+          key="reject"
+          danger
+          disabled
+        >
+          Reject Deferral
+        </Button>,
+
+        <Button
+          key="approve"
+          type="primary"
+          disabled
+          style={{
+            background: '#d9d9d9',
+            borderColor: '#d9d9d9',
+            color: '#8c8c8c'
+          }}
+        >
+          Awaiting Checker Approval
+        </Button>
+      ];
+    }
    
     // Fully Approved deferrals (Approved tab)
     if (isFullyApproved) {
       return [
-        <Button
-          key="close"
-          onClick={() => {
-            setModalVisible(false);
-            setSelectedDeferral(null);
-            setCreatorComment("");
-          }}
-        >
-          Close
-        </Button>,
+        closeButton,
         <Button
           key="download"
           type="primary"
@@ -1419,33 +1593,13 @@ const Deferrals = ({ userId }) => {
    
     // Rejected deferrals
     if (isRejected) {
-      return [
-        <Button
-          key="close"
-          onClick={() => {
-            setModalVisible(false);
-            setSelectedDeferral(null);
-            setCreatorComment("");
-          }}
-        >
-          Close
-        </Button>
-      ];
+      return [closeButton];
     }
    
     // Returned or Closed deferrals
     if (isReturned || isClosed) {
       return [
-        <Button
-          key="close"
-          onClick={() => {
-            setModalVisible(false);
-            setSelectedDeferral(null);
-            setCreatorComment("");
-          }}
-        >
-          Close
-        </Button>,
+        closeButton,
         <Button
           key="download"
           type="default"
@@ -1458,18 +1612,9 @@ const Deferrals = ({ userId }) => {
       ];
     }
    
-    // Pending deferrals (In Review) - Enable approve button based on user role and approval status
-    // Creator can approve when all approvers have approved
-    // Checker can approve when all approvers AND creator have approved
-    let canApprove = false;
-    if (effectiveIsCreator && allApproversApproved && !hasCreatorApproved) {
-      canApprove = true; // Creator can approve once all approvers approve
-    } else if (effectiveIsChecker && allApproversApproved && hasCreatorApproved && !hasCheckerApproved) {
-      canApprove = true; // Checker can approve once all approvers and creator approve
-    }
-   
+    // DEFAULT: Pending deferrals (In Review) - All buttons active
     return [
-      // DOWNLOAD — ALWAYS FAR LEFT & ACTIVE
+      // DOWNLOAD
       <Button
         key="download"
         type="default"
@@ -1480,7 +1625,7 @@ const Deferrals = ({ userId }) => {
         Download
       </Button>,
 
-      // RETURN FOR REWORK — NEVER GREYED
+      // RETURN FOR REWORK
       <Button
         key="return_for_rework"
         danger
@@ -1490,7 +1635,7 @@ const Deferrals = ({ userId }) => {
         Return for Re-work
       </Button>,
 
-      // REJECT — NEVER GREYED
+      // REJECT
       <Button
         key="reject"
         danger
@@ -1499,26 +1644,18 @@ const Deferrals = ({ userId }) => {
         Reject Deferral
       </Button>,
 
-      // APPROVE — ONLY BUTTON THAT CAN BE DISABLED
+      // APPROVE
       <Button
         key="approve"
         type="primary"
         onClick={handleApproveDeferral}
-        disabled={!canApprove}
-        loading={actionLoading}
         style={{
-          background: canApprove ? ACCENT_LIME : '#d9d9d9',
-          borderColor: canApprove ? ACCENT_LIME : '#d9d9d9',
-          color: canApprove ? PRIMARY_BLUE : '#8c8c8c'
+          background: ACCENT_LIME,
+          borderColor: ACCENT_LIME,
+          color: '#ffffff'
         }}
       >
-        {effectiveIsCreator && !effectiveIsChecker
-          ? 'Approve as Creator'
-          : effectiveIsChecker && !effectiveIsCreator
-          ? 'Approve as Checker'
-          : effectiveIsCreator
-          ? 'Approve as Creator'
-          : 'Approve Deferral'}
+        Approve Deferral
       </Button>
     ];
   };
@@ -1738,60 +1875,20 @@ const Deferrals = ({ userId }) => {
           const uploadedDocs = all.filter(a => a.isUploaded && !a.isDCL);
           const requestedDocs = all.filter(a => a.isRequested || a.isSelected);
 
-          // Process history to combine approval comments inline
+          // Process history to show ONLY user-entered comments (no system-generated text)
           const history = [];
-          const requesterName = selectedDeferral.requestor?.name || selectedDeferral.requestedBy || selectedDeferral.rmName || 'RM';
-          const requesterRole = selectedDeferral.requestor?.role || 'RM';
-          history.push({
-            user: requesterName,
-            userRole: requesterRole,
-            date: selectedDeferral.requestedDate || selectedDeferral.createdAt,
-            comment: selectedDeferral.rmReason || 'Deferral request submitted',
-            type: 'request'
-          });
 
-          // Add RM's posted comments (if any)
+          // Add ONLY user-posted comments from the comments array
           if (selectedDeferral.comments && Array.isArray(selectedDeferral.comments) && selectedDeferral.comments.length > 0) {
             selectedDeferral.comments.forEach(c => {
-              const commentAuthorName = c.author?.name || 'RM';
-              const commentAuthorRole = c.author?.role || 'RM';
+              const commentAuthorName = c.author?.name || 'User';
+              const commentAuthorRole = c.author?.role || 'User';
               history.push({
                 user: commentAuthorName,
                 userRole: commentAuthorRole,
                 date: c.createdAt,
                 comment: c.text || '',
                 type: 'comment'
-              });
-            });
-          }
-         
-          if (selectedDeferral.history && Array.isArray(selectedDeferral.history) && selectedDeferral.history.length > 0) {
-            selectedDeferral.history.forEach(h => {
-              // Skip redundant 'moved' action entries
-              if (h.action === 'moved') {
-                return;
-              }
-              
-              const comment = h.comment || h.notes || h.message || '';
-              const isApprovalComment = h.action === 'approved' || comment.toLowerCase().includes('approved by');
-              const isRejectionComment = h.action === 'rejected' || comment.toLowerCase().includes('rejected by');
-              const isReturnComment = h.action === 'returned' || comment.toLowerCase().includes('returned for rework');
-             
-              let displayComment = comment;
-              if (isApprovalComment) {
-                const match = comment.match(/^Approved by [^:]+:\s*(.*)/i) || comment.match(/^Approved by [^:]+(.*)/i);
-                if (match && match[1]) {
-                  displayComment = match[1].trim();
-                }
-              }
-             
-              history.push({
-                user: h.user?.name || h.userName || h.user || 'System',
-                userRole: h.user?.role || h.userRole || h.role || 'System',
-                date: h.date || h.createdAt || h.timestamp || h.entryDate,
-                comment: displayComment,
-                originalComment: comment,
-                type: isApprovalComment ? 'approval' : isRejectionComment ? 'rejection' : isReturnComment ? 'return' : 'comment'
               });
             });
           }
@@ -2530,19 +2627,46 @@ const Deferrals = ({ userId }) => {
                 )}
               </Card>
 
-              {/* Comment section for pending deferrals */}
-              {!isFullyApproved && !isRejected && !isReturned && canApproveDeferral(selectedDeferral) && (
-                <Card size="small" title={<span style={{ color: PRIMARY_BLUE }}>Add Your Comments (Required for Approval)</span>} style={{ marginBottom: 18 }}>
-                  <TextArea
-                    rows={3}
-                    placeholder="Enter your comments here..."
-                    value={creatorComment}
-                    onChange={(e) => setCreatorComment(e.target.value)}
-                    maxLength={500}
-                    showCount
-                  />
-                </Card>
-              )}
+              {/* Comments Input Section */}
+              <Card size="small" style={{ marginBottom: 24, marginTop: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+                  <div style={{
+                    width: 4,
+                    height: 20,
+                    backgroundColor: ACCENT_LIME,
+                    marginRight: 12,
+                    borderRadius: 2
+                  }} />
+                  <h4 style={{ color: PRIMARY_BLUE, margin: 0 }}>Comments</h4>
+                </div>
+                
+                <TextArea
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  rows={4}
+                  placeholder="Add any notes or comments for the deferral (optional)"
+                  maxLength={500}
+                  showCount
+                />
+                
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12, gap: 8 }}>
+                  <Button
+                    type="default"
+                    onClick={() => setNewComment('')}
+                    disabled={postingComment}
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    type="primary"
+                    onClick={handlePostComment}
+                    loading={postingComment}
+                    disabled={!newComment.trim()}
+                  >
+                    Post Comment
+                  </Button>
+                </div>
+              </Card>
 
               <div style={{ marginTop: 24 }}>
                 <h4 style={{ color: PRIMARY_BLUE, marginBottom: 16 }}>Comment Trail & History</h4>
@@ -2617,6 +2741,74 @@ const Deferrals = ({ userId }) => {
             </div>
           );
         })()}
+      </Modal>
+
+      {/* Approval Confirmation Modal */}
+      <Modal
+        title="Confirm Deferral Approval"
+        open={approvalConfirmModalVisible}
+        onCancel={() => setApprovalConfirmModalVisible(false)}
+        okText="Confirm Approval"
+        cancelText="Cancel"
+        okButtonProps={{ 
+          loading: actionLoading,
+          style: {
+            background: ACCENT_LIME,
+            borderColor: ACCENT_LIME,
+            color: '#ffffff'
+          }
+        }}
+        onOk={handleConfirmApproval}
+      >
+        <div style={{ padding: '12px 0' }}>
+          <div style={{ marginBottom: 16 }}>
+            <Text strong style={{ fontSize: 16, color: PRIMARY_BLUE }}>
+              Are you sure you want to approve this deferral?
+            </Text>
+          </div>
+          <div style={{
+            padding: 12,
+            backgroundColor: '#f0f5ff',
+            borderLeft: `4px solid ${PRIMARY_BLUE}`,
+            borderRadius: 4,
+            marginBottom: 16
+          }}>
+            <div style={{ marginBottom: 8 }}>
+              <span style={{ fontWeight: 600, color: SECONDARY_PURPLE }}>Deferral Number:</span>
+              <span style={{ marginLeft: 8, color: PRIMARY_BLUE, fontWeight: 500 }}>{selectedDeferral?.deferralNumber}</span>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <span style={{ fontWeight: 600, color: SECONDARY_PURPLE }}>Customer:</span>
+              <span style={{ marginLeft: 8, color: PRIMARY_BLUE, fontWeight: 500 }}>{selectedDeferral?.customerName}</span>
+            </div>
+            <div>
+              <span style={{ fontWeight: 600, color: SECONDARY_PURPLE }}>DCL Number:</span>
+              <span style={{ marginLeft: 8, color: PRIMARY_BLUE, fontWeight: 500 }}>{selectedDeferral?.dclNo || selectedDeferral?.dclNumber}</span>
+            </div>
+          </div>
+          <Alert
+            message="Once you approve, this deferral will be sent to the Checker for review. You will not be able to make changes until the Checker acts on it."
+            type="warning"
+            icon={<ExclamationCircleOutlined />}
+            style={{ marginBottom: 12 }}
+          />
+          <div style={{
+            padding: 12,
+            backgroundColor: ACCENT_LIME + '15',
+            border: `1px solid ${ACCENT_LIME}40`,
+            borderRadius: 4
+          }}>
+            <Text strong style={{ color: PRIMARY_BLUE, display: 'block', marginBottom: 8 }}>Your Comment:</Text>
+            <TextArea
+              rows={3}
+              placeholder="Enter your approval comment here..."
+              value={creatorComment}
+              onChange={(e) => setCreatorComment(e.target.value)}
+              maxLength={500}
+              showCount
+            />
+          </div>
+        </div>
       </Modal>
     </div>
   );

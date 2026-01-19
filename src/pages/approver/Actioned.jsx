@@ -70,6 +70,8 @@ const Actioned = () => {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [newComment, setNewComment] = useState("");
+  const [postingComment, setPostingComment] = useState(false);
 
   const dclDocs = (selected && (selected.documents||[]).filter(d=> (d.isDCL) || (d.name && /dcl/i.test(d.name)) || (selected.dclNo && d.name && d.name.toLowerCase().includes((selected.dclNo||'').toLowerCase())))) || [];
 
@@ -117,6 +119,56 @@ const Actioned = () => {
       return JSON.stringify(x);
     }
     return String(x);
+  };
+
+  // Handle posting comments
+  const handlePostComment = async () => {
+    if (!newComment.trim()) {
+      message.error('Please enter a comment before posting');
+      return;
+    }
+
+    if (!selected || !selected._id) {
+      message.error('No deferral selected');
+      return;
+    }
+
+    setPostingComment(true);
+    try {
+      const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      const commentData = {
+        text: newComment.trim(),
+        author: {
+          name: currentUser.name || currentUser.user?.name || 'User',
+          role: currentUser.role || currentUser.user?.role || 'user'
+        },
+        createdAt: new Date().toISOString()
+      };
+
+      // Post comment to the backend
+      await deferralApi.postComment(selected._id, commentData, token);
+
+      message.success('Comment posted successfully');
+      
+      // Clear the input
+      setNewComment('');
+
+      // Refresh the deferral to show the new comment
+      const refreshedDeferral = await deferralApi.getDeferralById(selected._id, token);
+      setSelected(refreshedDeferral);
+      
+      // Update in the list
+      const updatedDeferrals = deferrals.map(d => 
+        d._id === refreshedDeferral._id ? refreshedDeferral : d
+      );
+      setDeferrals(updatedDeferrals);
+    } catch (error) {
+      console.error('Failed to post comment:', error);
+      message.error(error.message || 'Failed to post comment');
+    } finally {
+      setPostingComment(false);
+    }
   };
 
   useEffect(() => {
@@ -491,6 +543,47 @@ const Actioned = () => {
                         const approverLabel = nameOf(a);
                         return (<div key={i} style={{ padding: '10px 12px', backgroundColor: isCurrent ? '#e6f7ff' : '#fafafa', borderRadius: 6, border: isCurrent ? `2px solid ${PRIMARY_BLUE}` : '1px solid #e8e8e8', display: 'flex', alignItems: 'center', gap: 12 }}><div style={{ width: 28, height: 28, borderRadius: 999, backgroundColor: isCurrent ? PRIMARY_BLUE : '#bfbfbf', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{i+1}</div><div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{approverLabel}</div>{isCurrent && <div style={{ fontSize: 12, color: PRIMARY_BLUE, marginTop: 4 }}><ClockCircleOutlined /> Current Approver • Pending Approval {selected.slaExpiry && <span style={{ marginLeft: 8, color: WARNING_ORANGE }}>SLA: {dayjs(selected.slaExpiry).format('DD MMM HH:mm')}</span>}</div>}</div></div>);
                       })}
+                    </div>
+                  </Card>
+
+                  {/* Comments Input Section */}
+                  <Card size="small" style={{ marginBottom: 16, marginTop: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+                      <div style={{
+                        width: 4,
+                        height: 20,
+                        backgroundColor: '#b5d334',
+                        marginRight: 12,
+                        borderRadius: 2
+                      }} />
+                      <h4 style={{ color: PRIMARY_BLUE, margin: 0 }}>Comments</h4>
+                    </div>
+                    
+                    <AntdInput.TextArea
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      rows={4}
+                      placeholder="Add any notes or comments for the deferral (optional)"
+                      maxLength={500}
+                      showCount
+                    />
+                    
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12, gap: 8 }}>
+                      <Button
+                        type="default"
+                        onClick={() => setNewComment('')}
+                        disabled={postingComment}
+                      >
+                        Clear
+                      </Button>
+                      <Button
+                        type="primary"
+                        onClick={handlePostComment}
+                        loading={postingComment}
+                        disabled={!newComment.trim()}
+                      >
+                        Post Comment
+                      </Button>
                     </div>
                   </Card>
 

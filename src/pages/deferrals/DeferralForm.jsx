@@ -176,6 +176,14 @@ export default function DeferralForm({ userId, onSuccess }) {
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const searchTimeoutRef = useRef(null);
 
+  // DCL search form state
+  const [searchMode, setSearchMode] = useState("customer"); // "customer" or "dcl"
+  const [searchDclNumber, setSearchDclNumber] = useState("");
+  const [dclSearchResults, setDclSearchResults] = useState([]);
+  const dclSearchTimeoutRef = useRef(null);
+  const [isSearchedByDcl, setIsSearchedByDcl] = useState(false); // Track if DCL search was used
+  const [selectedDclId, setSelectedDclId] = useState(null); // Store selected DCL ID
+
   // File upload states
   const [dclFile, setDclFile] = useState(null);
   const [additionalFiles, setAdditionalFiles] = useState([]);
@@ -418,6 +426,142 @@ export default function DeferralForm({ userId, onSuccess }) {
     setCustomerSearchResults([]);
   };
 
+  // ----------------------
+  // DCL SEARCH FUNCTIONS
+  // ----------------------
+  const searchDclsTypeahead = async (q) => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('user') || 'null');
+      const token = stored?.token;
+      const url = `${import.meta.env.VITE_API_URL}/api/deferrals/search-by-dcl?dclNumber=${encodeURIComponent(q)}`;
+      const res = await fetch(url, {
+        headers: {
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+          "content-type": "application/json",
+        },
+      });
+      if (!res.ok) return;
+      const results = await res.json();
+      setDclSearchResults(Array.isArray(results) ? results : []);
+    } catch (err) {
+      console.error("DCL typeahead search failed", err);
+    }
+  };
+
+  useEffect(() => {
+    // Debounce as user types DCL number
+    if (dclSearchTimeoutRef.current) clearTimeout(dclSearchTimeoutRef.current);
+    // Trigger search after at least 1 character
+    if (!searchDclNumber || searchDclNumber.length < 1) {
+      setDclSearchResults([]);
+      return;
+    }
+
+    dclSearchTimeoutRef.current = setTimeout(() => {
+      searchDclsTypeahead(searchDclNumber);
+    }, 300);
+
+    return () => {
+      if (dclSearchTimeoutRef.current) clearTimeout(dclSearchTimeoutRef.current);
+    };
+  }, [searchDclNumber]);
+
+  const handleSelectDcl = (deferral) => {
+    // Populate customer details from the selected deferral
+    setCustomerName(deferral.customerName || "");
+    setBusinessName(deferral.businessName || "");
+    setCustomerNumber(deferral.customerNumber || "");
+    setLoanType(deferral.loanType || "");
+    setSearchDclNumber(deferral.dclNumber || "");
+    setDclNumber(deferral.dclNumber || ""); // Auto-fill DCL number field
+    setSelectedCustomerId(deferral.customer?._id || null);
+    setSelectedDclId(deferral._id); // Store the selected DCL ID
+    setIsSearchedByDcl(true); // Mark that DCL search was used
+
+    // Fetch and auto-download the DCL file
+    fetchDclFile(deferral._id, deferral.dclNumber);
+
+    // Auto-proceed to deferral details page
+    setIsCustomerFetched(true);
+    setShowSearchForm(false);
+    setDclSearchResults([]);
+  };
+
+  // ----------------------
+  // FETCH DCL FILE
+  // ----------------------
+  const fetchDclFile = async (checklistId, dclNumber) => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('user') || 'null');
+      const token = stored?.token;
+      
+      // Fetch the checklist to get the documents
+      const url = `${import.meta.env.VITE_API_URL}/api/cocreatorChecklist/${checklistId}`;
+      const res = await fetch(url, {
+        headers: {
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+          "content-type": "application/json",
+        },
+      });
+
+      if (!res.ok) {
+        console.error("Failed to fetch DCL checklist");
+        return;
+      }
+
+      const checklist = await res.json();
+      
+      // Find the most recent DCL file (if documents array exists)
+      if (checklist.documents && Array.isArray(checklist.documents)) {
+        // Flatten all documents and find the most recent one
+        const allDocs = [];
+        checklist.documents.forEach(category => {
+          if (category.docList && Array.isArray(category.docList)) {
+            allDocs.push(...category.docList);
+          }
+        });
+
+        // Sort by timestamp and get the most recent
+        allDocs.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        
+        if (allDocs.length > 0) {
+          const latestDoc = allDocs[0];
+          
+          // Set the DCL file with the document details for display in the compartment
+          if (latestDoc.fileUrl || latestDoc.url) {
+            const fileName = latestDoc.name || `${dclNumber}.pdf`;
+            const fileUrl = latestDoc.fileUrl || latestDoc.url;
+            
+            setDclFile({
+              name: fileName,
+              url: fileUrl,
+              type: latestDoc.type || 'DCL',
+              isDCL: true,
+              size: latestDoc.size || 0,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch DCL file:", err);
+    }
+  };
+
+  // Helper function to download file
+  const downloadFile = (url, filename) => {
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error("Failed to download file:", err);
+    }
+  };
+
+
 
   // ----------------------
   // FILE UPLOAD HANDLERS
@@ -553,7 +697,7 @@ export default function DeferralForm({ userId, onSuccess }) {
   // ----------------------
   // RENDER DOCUMENT LIST ITEMS
   // ----------------------
-  const renderDocumentItem = (file, isDCL = false) => {
+  const renderDocumentItem = (file, allowDelete = true) => {
     const fileSize = file.size ? `${(file.size / 1024).toFixed(2)} KB` : 'Size unknown';
     
     return (
@@ -587,15 +731,17 @@ export default function DeferralForm({ userId, onSuccess }) {
               onClick={() => handleViewDocument(file)}
             />
           </Tooltip>
-          <Tooltip title="Delete document">
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => isDCL ? removeDCLFile() : removeAdditionalFile(file)}
-            />
-          </Tooltip>
+          {allowDelete && (
+            <Tooltip title="Delete document">
+              <Button
+                type="text"
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => file.isDCL ? removeDCLFile() : removeAdditionalFile(file)}
+              />
+            </Tooltip>
+          )}
         </div>
       </div>
     );
@@ -866,11 +1012,17 @@ export default function DeferralForm({ userId, onSuccess }) {
           <Text strong>DCL Number</Text>
           <Input
             value={dclNumber}
-            onChange={(e) => setDclNumber(e.target.value)}
+            onChange={(e) => !isSearchedByDcl && setDclNumber(e.target.value)}
             placeholder="Enter DCL number"
             size="large"
             prefix={<FileTextOutlined />}
             required
+            disabled={isSearchedByDcl}
+            style={{
+              backgroundColor: isSearchedByDcl ? '#f5f5f5' : '#fff',
+              cursor: isSearchedByDcl ? 'not-allowed' : 'text',
+              opacity: isSearchedByDcl ? 0.7 : 1,
+            }}
           />
         </Col>
         
@@ -1102,7 +1254,7 @@ export default function DeferralForm({ userId, onSuccess }) {
         facilities,
         approvers: approverSlots.map((s) => ({ role: s.role, user: s.userId })),
         // Preserve selected document names/metadata so they appear in pending modal
-        selectedDocuments: (selectedDocuments || []).map(d => (typeof d === 'string' ? { name: d } : d)),
+        selectedDocuments: (selectedDocuments || []).map(d => (typeof d === 'string' ? { name: d } : d))
       };
 
       // Convert uploaded files to data URLs and include them in the create payload so documents are persisted atomically
@@ -1429,109 +1581,220 @@ export default function DeferralForm({ userId, onSuccess }) {
             <>
               <Divider style={{ margin: "24px 0" }} />
               
-              <div style={{ textAlign: "left", marginBottom: 32 }}>
-                <Form
-                  layout="vertical"
-                  onFinish={fetchCustomer}
+              {/* Search Mode Tabs */}
+              <div style={{ marginBottom: 24, display: 'flex', gap: 12, justifyContent: 'center' }}>
+                <Button
+                  type={searchMode === 'customer' ? 'primary' : 'default'}
+                  onClick={() => {
+                    setSearchMode('customer');
+                    setSearchDclNumber('');
+                    setDclSearchResults([]);
+                  }}
+                  style={{
+                    backgroundColor: searchMode === 'customer' ? PRIMARY_PURPLE : 'transparent',
+                    borderColor: PRIMARY_PURPLE,
+                    color: searchMode === 'customer' ? '#fff' : PRIMARY_PURPLE,
+                    fontWeight: 600,
+                  }}
                 >
-                  <Form.Item
-                    label="Customer Number"
-                    name="customerNumber"
-                    rules={[{ required: true, message: 'Please enter customer number' }]}
-                  >
-                    <div style={{ position: 'relative' }}>
-                      <Input
-                        type="text"
-                        size="large"
-                        value={searchCustomerNumber}
-                        onChange={(e) => setSearchCustomerNumber(e.target.value.replace(/\D/g, ""))}
-                        placeholder="e.g. 123456"
-                        autoFocus
-                      />
+                  Search by Customer Number
+                </Button>
+                <Button
+                  type={searchMode === 'dcl' ? 'primary' : 'default'}
+                  onClick={() => {
+                    setSearchMode('dcl');
+                    setSearchCustomerNumber('');
+                    setSearchLoanType('');
+                    setCustomerSearchResults([]);
+                  }}
+                  style={{
+                    backgroundColor: searchMode === 'dcl' ? PRIMARY_PURPLE : 'transparent',
+                    borderColor: PRIMARY_PURPLE,
+                    color: searchMode === 'dcl' ? '#fff' : PRIMARY_PURPLE,
+                    fontWeight: 600,
+                  }}
+                >
+                  Search by DCL Number
+                </Button>
+              </div>
 
-                      {/* Typeahead suggestions */}
-                      {customerSearchResults && customerSearchResults.length > 0 && (
-                        <div style={{
-                          position: 'absolute',
-                          top: '42px',
-                          left: 0,
-                          right: 0,
-                          zIndex: 1200,
-                          background: '#fff',
-                          border: '1px solid #eee',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                          maxHeight: 240,
-                          overflowY: 'auto',
-                          borderRadius: 6,
-                        }}>
-                          {customerSearchResults.map((c) => (
-                            <div
-                              key={c._id}
-                              onClick={() => handleSelectCustomer(c)}
-                              style={{
-                                padding: '10px 12px',
-                                borderBottom: '1px solid #f6f6f6',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center'
-                              }}
-                            >
-                              <div>
-                                <div style={{ fontWeight: 600 }}>{c.name}</div>
-                                <div style={{ fontSize: 12, color: '#666' }}>{c.customerNumber}</div>
-                              </div>
-                              <div style={{ fontSize: 12, color: '#999' }}>{c.email}</div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </Form.Item>
-                  
-                  <Form.Item
-                    label="Loan Type"
-                    name="loanType"
-                    rules={[{ required: true, message: 'Please select loan type' }]}
+              <div style={{ textAlign: "left", marginBottom: 32 }}>
+                {searchMode === 'customer' ? (
+                  <Form
+                    layout="vertical"
+                    onFinish={fetchCustomer}
                   >
-                    <Select
-                      size="large"
-                      style={{ width: "100%" }}
-                      value={searchLoanType}
-                      onChange={setSearchLoanType}
-                      placeholder="Select loan type"
+                    <Form.Item
+                      label="Customer Number"
+                      name="customerNumber"
+                      rules={[{ required: true, message: 'Please enter customer number' }]}
                     >
-                      <Option value="asset finance">Asset Finance</Option>
-                      <Option value="business loan">Business Loan</Option>
-                      <Option value="consumer">Consumer</Option>
-                      <Option value="mortgage">Mortgage</Option>
-                      <Option value="construction">Construction Loan</Option>
-                      <Option value="shamba loan">Shamba Loan</Option>
-                    </Select>
-                  </Form.Item>
-                  
-                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 24 }}>
-                    <Button
-                      type="default"
-                      onClick={() => setShowSearchForm(false)}
-                      size="large"
+                      <div style={{ position: 'relative' }}>
+                        <Input
+                          type="text"
+                          size="large"
+                          value={searchCustomerNumber}
+                          onChange={(e) => setSearchCustomerNumber(e.target.value.replace(/\D/g, ""))}
+                          placeholder="e.g. 123456"
+                          autoFocus
+                        />
+
+                        {/* Typeahead suggestions */}
+                        {customerSearchResults && customerSearchResults.length > 0 && (
+                          <div style={{
+                            position: 'absolute',
+                            top: '42px',
+                            left: 0,
+                            right: 0,
+                            zIndex: 1200,
+                            background: '#fff',
+                            border: '1px solid #eee',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                            maxHeight: 240,
+                            overflowY: 'auto',
+                            borderRadius: 6,
+                          }}>
+                            {customerSearchResults.map((c) => (
+                              <div
+                                key={c._id}
+                                onClick={() => handleSelectCustomer(c)}
+                                style={{
+                                  padding: '10px 12px',
+                                  borderBottom: '1px solid #f6f6f6',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center'
+                                }}
+                              >
+                                <div>
+                                  <div style={{ fontWeight: 600 }}>{c.name}</div>
+                                  <div style={{ fontSize: 12, color: '#666' }}>{c.customerNumber}</div>
+                                </div>
+                                <div style={{ fontSize: 12, color: '#999' }}>{c.email}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </Form.Item>
+                    
+                    <Form.Item
+                      label="Loan Type"
+                      name="loanType"
+                      rules={[{ required: true, message: 'Please select loan type' }]}
                     >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="primary"
-                      htmlType="submit"
-                      loading={isFetching}
-                      size="large"
-                      style={{
-                        backgroundColor: PRIMARY_PURPLE,
-                        borderColor: PRIMARY_PURPLE,
-                      }}
+                      <Select
+                        size="large"
+                        style={{ width: "100%" }}
+                        value={searchLoanType}
+                        onChange={setSearchLoanType}
+                        placeholder="Select loan type"
+                      >
+                        <Option value="asset finance">Asset Finance</Option>
+                        <Option value="business loan">Business Loan</Option>
+                        <Option value="consumer">Consumer</Option>
+                        <Option value="mortgage">Mortgage</Option>
+                        <Option value="construction">Construction Loan</Option>
+                        <Option value="shamba loan">Shamba Loan</Option>
+                      </Select>
+                    </Form.Item>
+                    
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 24 }}>
+                      <Button
+                        type="default"
+                        onClick={() => setShowSearchForm(false)}
+                        size="large"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="primary"
+                        htmlType="submit"
+                        loading={isFetching}
+                        size="large"
+                        style={{
+                          backgroundColor: PRIMARY_PURPLE,
+                          borderColor: PRIMARY_PURPLE,
+                        }}
+                      >
+                        {isFetching ? "Fetching..." : "Fetch Customer"}
+                      </Button>
+                    </div>
+                  </Form>
+                ) : (
+                  <Form layout="vertical">
+                    <Form.Item
+                      label="DCL Number"
+                      rules={[{ required: true, message: 'Please enter DCL number' }]}
                     >
-                      {isFetching ? "Fetching..." : "Fetch Customer"}
-                    </Button>
-                  </div>
-                </Form>
+                      <div style={{ position: 'relative' }}>
+                        <Input
+                          type="text"
+                          size="large"
+                          value={searchDclNumber}
+                          onChange={(e) => setSearchDclNumber(e.target.value)}
+                          placeholder="e.g. DCL-26-0183"
+                          autoFocus
+                        />
+
+                        {/* DCL Typeahead suggestions */}
+                        {dclSearchResults && dclSearchResults.length > 0 && (
+                          <div style={{
+                            position: 'absolute',
+                            top: '42px',
+                            left: 0,
+                            right: 0,
+                            zIndex: 1200,
+                            background: '#fff',
+                            border: '1px solid #eee',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                            maxHeight: 240,
+                            overflowY: 'auto',
+                            borderRadius: 6,
+                          }}>
+                            {dclSearchResults.map((dcl) => (
+                              <div
+                                key={dcl._id}
+                                onClick={() => handleSelectDcl(dcl)}
+                                style={{
+                                  padding: '12px',
+                                  borderBottom: '1px solid #f6f6f6',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 4
+                                }}
+                              >
+                                <div style={{ fontWeight: 600, color: PRIMARY_PURPLE }}>{dcl.dclNumber}</div>
+                                <div style={{ fontSize: 12, color: '#666' }}>
+                                  {dcl.customerName} ({dcl.customerNumber})
+                                </div>
+                                <div style={{ fontSize: 12, color: '#999' }}>
+                                  Loan Type: {dcl.loanType}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </Form.Item>
+
+                    <Text type="secondary" style={{ marginTop: 8, display: 'block', fontSize: 13 }}>
+                      Tip: Start typing a DCL number to search. Customer details will auto-populate when you select a DCL.
+                    </Text>
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 24 }}>
+                      <Button
+                        type="default"
+                        onClick={() => setShowSearchForm(false)}
+                        size="large"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </Form>
+                )}
               </div>
             </>
           ) : (

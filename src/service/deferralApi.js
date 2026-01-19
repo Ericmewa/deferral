@@ -442,4 +442,14 @@ export default {
     }
     return res.json();
   },
+
+  postComment: async (id, commentData, token) => {
+    const res = await fetch(`${API_BASE}/${id}/comments`, {
+      method: "POST",
+      headers: getAuthHeaders(token),
+      body: JSON.stringify(commentData),
+    });
+    if (!res.ok) throw new Error("Failed to post comment");
+    return res.json();
+  },
 };
