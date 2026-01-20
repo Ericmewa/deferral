@@ -467,6 +467,8 @@ const DeferralDetailsModal = ({ deferral, open, onClose, onAction }) => {
   const [loadingApproveClose, setLoadingApproveClose] = useState(false);
   const [withdrawConfirmVisible, setWithdrawConfirmVisible] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [newComment, setNewComment] = useState('');
+  const [postingComment, setPostingComment] = useState(false);
 
   useEffect(() => {
     setLocalDeferral(deferral);
@@ -768,6 +770,52 @@ const DeferralDetailsModal = ({ deferral, open, onClose, onAction }) => {
       message.error('Failed to download deferral. Please try again.');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // Handle posting comments
+  const handlePostComment = async () => {
+    if (!newComment.trim()) {
+      message.error('Please enter a comment before posting');
+      return;
+    }
+
+    if (!localDeferral || !localDeferral._id) {
+      message.error('No deferral selected');
+      return;
+    }
+
+    setPostingComment(true);
+    try {
+      const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+      const stored = JSON.parse(localStorage.getItem('user') || 'null');
+      const token = stored?.token;
+      
+      const commentData = {
+        text: newComment.trim(),
+        author: {
+          name: currentUser.name || currentUser.user?.name || 'User',
+          role: currentUser.role || currentUser.user?.role || 'user'
+        },
+        createdAt: new Date().toISOString()
+      };
+
+      // Post comment to the backend
+      await deferralApi.postComment(localDeferral._id, commentData, token);
+
+      message.success('Comment posted successfully');
+      
+      // Clear the input
+      setNewComment('');
+
+      // Refresh the deferral to show the new comment
+      const refreshedDeferral = await deferralApi.getDeferralById(localDeferral._id, token);
+      setLocalDeferral(refreshedDeferral);
+    } catch (error) {
+      console.error('Failed to post comment:', error);
+      message.error(error.message || 'Failed to post comment');
+    } finally {
+      setPostingComment(false);
     }
   };
 

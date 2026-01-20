@@ -194,6 +194,8 @@ const customStyles = `
 // Deferral Details Modal for MyQueue - Shows status as pending
 const DeferralDetailsModal = ({ deferral, open, onClose, onAction, token }) => {
   const [loadingComments, setLoadingComments] = useState(false);
+  const [newComment, setNewComment] = useState('');
+  const [postingComment, setPostingComment] = useState(false);
 
   // Controlled approve confirmation modal state
   const [showApproveConfirm, setShowApproveConfirm] = useState(false);
@@ -287,7 +289,7 @@ const DeferralDetailsModal = ({ deferral, open, onClose, onAction, token }) => {
       return;
     }
 
-    if (!selectedDeferral || !selectedDeferral._id) {
+    if (!deferral || !deferral._id) {
       message.error('No deferral selected');
       return;
     }
@@ -306,7 +308,7 @@ const DeferralDetailsModal = ({ deferral, open, onClose, onAction, token }) => {
       };
 
       // Post comment to the backend
-      await deferralApi.postComment(selectedDeferral._id, commentData, token);
+      await deferralApi.postComment(deferral._id, commentData, token);
 
       message.success('Comment posted successfully');
       
@@ -314,14 +316,10 @@ const DeferralDetailsModal = ({ deferral, open, onClose, onAction, token }) => {
       setNewComment('');
 
       // Refresh the deferral to show the new comment
-      const refreshedDeferral = await deferralApi.getDeferralById(selectedDeferral._id, token);
-      setSelectedDeferral(refreshedDeferral);
+      const refreshedDeferral = await deferralApi.getDeferralById(deferral._id, token);
       
-      // Update in the list
-      const updatedDeferrals = deferrals.map(d => 
-        d._id === refreshedDeferral._id ? refreshedDeferral : d
-      );
-      setDeferrals(updatedDeferrals);
+      // Notify parent to refresh queue
+      if (onAction) onAction('refreshQueue');
     } catch (error) {
       console.error('Failed to post comment:', error);
       message.error(error.message || 'Failed to post comment');
@@ -1336,7 +1334,7 @@ const MyQueue = () => {
           <Table
             columns={columns}
             dataSource={filteredDeferrals}
-            rowKey="id"
+            rowKey={(record) => record._id || record.id || `row-${Math.random()}`}
             pagination={{
               pageSize: 10,
               showSizeChanger: true,

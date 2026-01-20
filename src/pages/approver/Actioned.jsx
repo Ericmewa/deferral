@@ -439,7 +439,7 @@ const Actioned = () => {
         onCancel={() => setModalOpen(false)}
         footer={null}
         width={950}
-        bodyStyle={{ padding: '0 24px 24px' }}
+        styles={{ body: { padding: '0 24px 24px' } }}
       >
         {selected && (
           <div style={{ maxHeight: '75vh', overflowY: 'auto' }}>
@@ -559,7 +559,7 @@ const Actioned = () => {
                       <h4 style={{ color: PRIMARY_BLUE, margin: 0 }}>Comments</h4>
                     </div>
                     
-                    <AntdInput.TextArea
+                    <Input.TextArea
                       value={newComment}
                       onChange={(e) => setNewComment(e.target.value)}
                       rows={4}
