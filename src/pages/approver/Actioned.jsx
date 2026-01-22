@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { Table, Card, Empty, message, Modal, Typography, Spin, Tag, Descriptions, Space, Badge, Row, Col, Input, Button, Divider } from "antd";
+import { Table, Card, Empty, message, Modal, Typography, Spin, Tag, Descriptions, Space, Badge, Row, Col, Input, Button, Divider, Tabs } from "antd";
 import dayjs from "dayjs";
 import { FileTextOutlined, MailOutlined, PhoneOutlined, ClockCircleOutlined, SearchOutlined, CustomerServiceOutlined, EyeOutlined, CheckCircleOutlined, CloseCircleOutlined, DownloadOutlined, BankOutlined } from "@ant-design/icons";
 import { useSelector } from "react-redux";
 import deferralApi from "../../service/deferralApi";
 import getFacilityColumns from '../../utils/facilityColumns';
+import ApproverExtensionTab from "../../components/ApproverExtensionTab";
+import { useGetApproverActionedExtensionsQuery } from "../../api/extensionApi";
 
 const { Text } = Typography;
 
@@ -72,6 +74,10 @@ const Actioned = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [newComment, setNewComment] = useState("");
   const [postingComment, setPostingComment] = useState(false);
+  const [activeTab, setActiveTab] = useState("deferrals");
+
+  // Extension hooks
+  const { data: actionedExtensions = [], isLoading: extensionsLoading } = useGetApproverActionedExtensionsQuery();
 
   const dclDocs = (selected && (selected.documents||[]).filter(d=> (d.isDCL) || (d.name && /dcl/i.test(d.name)) || (selected.dclNo && d.name && d.name.toLowerCase().includes((selected.dclNo||'').toLowerCase())))) || [];
 
@@ -374,6 +380,39 @@ const Actioned = () => {
         </Row>
       </Card>
 
+      {/* Tabs */}
+      <Tabs activeKey={activeTab} onChange={(key) => setActiveTab(key)} type="card" style={{ marginBottom: 16 }}>
+        <Tabs.TabPane tab={`Deferrals (${deferrals.length})`} key="deferrals" />
+        <Tabs.TabPane tab={`Extension Applications (${actionedExtensions.length})`} key="extensions" />
+      </Tabs>
+
+      {activeTab === "deferrals" && (
+      <>
+      <Card
+        style={{
+          borderLeft: `4px solid ${ACCENT_LIME || '#b5d334'}`
+        }}
+        styles={{ body: { padding: 16 } }}
+      >
+        <Row justify="space-between" align="middle">
+          <Col>
+            <h2 style={{ margin: 0, color: PRIMARY_BLUE, display: "flex", alignItems: "center", gap: 12 }}>
+              Completed
+              <Badge
+                count={deferrals.length}
+                style={{
+                  backgroundColor: ACCENT_LIME || '#b5d334',
+                  fontSize: 12
+                }}
+              />
+            </h2>
+            <p style={{ margin: "4px 0 0", color: "#666", fontSize: 14 }}>
+              Items you have approved or rejected
+            </p>
+          </Col>
+        </Row>
+      </Card>
+
       {/* Filters */}
       <Card
         style={{
@@ -432,6 +471,18 @@ const Actioned = () => {
           </div>
         )}
       </Card>
+      </>
+      )}
+
+      {activeTab === "extensions" && (
+        <ApproverExtensionTab
+          extensions={actionedExtensions}
+          loading={extensionsLoading}
+          onApprove={() => {}}
+          onReject={() => {}}
+          tabType="actioned"
+        />
+      )}
 
       <Modal
         title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BankOutlined /> <span>Deferral Request: {selected?.deferralNumber}</span></div>}

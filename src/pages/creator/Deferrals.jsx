@@ -347,6 +347,14 @@ const Deferrals = ({ userId }) => {
   const [postingComment, setPostingComment] = useState(false);
   const [approvalConfirmModalVisible, setApprovalConfirmModalVisible] = useState(false);
   const [disabledDeferralIds, setDisabledDeferralIds] = useState(new Set());
+  
+  // Reject and rework confirmation modals
+  const [showRejectConfirm, setShowRejectConfirm] = useState(false);
+  const [rejectComment, setRejectComment] = useState("");
+  const [rejecting, setRejecting] = useState(false);
+  const [showReworkConfirm, setShowReworkConfirm] = useState(false);
+  const [reworkComment, setReworkComment] = useState("");
+  const [returnReworkLoading, setReturnReworkLoading] = useState(false);
 
   // Fetch deferrals from API
   const fetchDeferrals = async () => {
@@ -710,43 +718,53 @@ const Deferrals = ({ userId }) => {
     }
   };
 
-  const handleRejectDeferral = async () => {
-    if (!creatorComment.trim()) {
-      message.error("Please enter your comments before rejecting");
+  const handleRejectDeferral = () => {
+    setRejectComment('');
+    setShowRejectConfirm(true);
+  };
+
+  const doReject = async () => {
+    if (!rejectComment || rejectComment.trim() === '') {
+      message.error('Please provide a rejection reason');
       return;
     }
-
-    setActionLoading(true);
+    
+    setRejecting(true);
     try {
       const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
       const userId = currentUser._id || currentUser.user?._id;
       const userName = currentUser.name || currentUser.user?.name || currentUser.email;
-     
-      // Determine which rejection action to take
-      const isCreator = selectedDeferral.creator &&
-        (selectedDeferral.creator._id === userId || selectedDeferral.creator === userId);
-      const isChecker = selectedDeferral.checker &&
-        (selectedDeferral.checker._id === userId || selectedDeferral.checker === userId);
-     
+      const userRole = currentUser.role || currentUser.user?.role;
+      
+      // Determine which rejection action to take based on user role and deferral context
+      // On Creator/Deferrals page, user should be a Creator or Checker role
+      const isCreator = userRole === 'creator' || 
+        (selectedDeferral.creator &&
+         (selectedDeferral.creator._id?.toString() === userId || selectedDeferral.creator?.toString() === userId));
+      
+      const isChecker = userRole === 'checker' ||
+        (selectedDeferral.checker &&
+         (selectedDeferral.checker._id?.toString() === userId || selectedDeferral.checker?.toString() === userId));
+      
       let response;
-     
-      if (isCreator) {
+      
+      if (isCreator || userRole === 'creator') {
         response = await deferralApi.rejectByCreator(selectedDeferral._id, {
-          comment: creatorComment,
+          comment: rejectComment,
           rejectedBy: userId,
           rejectedByName: userName,
           status: 'rejected'
         }, token);
-      } else if (isChecker) {
+      } else if (isChecker || userRole === 'checker') {
         response = await deferralApi.rejectByChecker(selectedDeferral._id, {
-          comment: creatorComment,
+          comment: rejectComment,
           rejectedBy: userId,
           rejectedByName: userName,
           status: 'rejected'
         }, token);
       } else {
         response = await deferralApi.rejectDeferral(selectedDeferral._id, {
-          comment: creatorComment,
+          comment: rejectComment,
           rejectedBy: userId,
           rejectedByName: userName,
           status: 'rejected'
@@ -755,41 +773,40 @@ const Deferrals = ({ userId }) => {
 
       if (response && response.success) {
         message.success("Deferral rejected successfully!");
-       
+        
         // Email notification to RM
         try {
           await deferralApi.sendEmailNotification(selectedDeferral._id, 'rejected_to_rm', {
-            comment: creatorComment,
+            comment: rejectComment,
             userName: userName,
-            rejectedBy: isCreator ? 'Creator' : isChecker ? 'Checker' : 'Approver'
+            rejectedBy: isCreator || userRole === 'creator' ? 'Creator' : isChecker || userRole === 'checker' ? 'Checker' : 'Approver'
           });
         } catch (emailErr) {
           console.warn("Failed to send email notification:", emailErr);
         }
-       
+        
         // Update local state - move to rejected list
         const updatedDeferrals = deferrals.map(d =>
           d._id === selectedDeferral._id ? { ...d, ...response.deferral } : d
         );
         setDeferrals(updatedDeferrals);
-       
+        
         setModalVisible(false);
         setSelectedDeferral(null);
-        setCreatorComment("");
-       
+        setShowRejectConfirm(false);
+        
         // Set active tab to rejected
         setActiveTab('rejected');
-       
+        
         // Load deferrals to refresh lists
         loadDeferrals();
-       
+        
         // Dispatch event for other components
         try {
           window.dispatchEvent(new CustomEvent('deferral:updated', {
             detail: response.deferral
           }));
         } catch(e) { /* ignore */ }
-       
       } else {
         throw new Error(response?.message || "Failed to reject deferral");
       }
@@ -797,7 +814,7 @@ const Deferrals = ({ userId }) => {
       console.error("Error rejecting deferral:", error);
       message.error(error.message || "Failed to reject deferral");
     } finally {
-      setActionLoading(false);
+      setRejecting(false);
     }
   };
 
@@ -850,43 +867,52 @@ const Deferrals = ({ userId }) => {
     }
   };
 
-  const handleReturnForRework = async () => {
-    if (!creatorComment.trim()) {
-      message.error("Please enter your comments before returning for rework");
+  const handleReturnForRework = () => {
+    setReworkComment('');
+    setShowReworkConfirm(true);
+  };
+
+  const doReturnForRework = async () => {
+    if (!reworkComment || reworkComment.trim() === '') {
+      message.error('Please provide rework instructions');
       return;
     }
-
-    setActionLoading(true);
+    
+    setReturnReworkLoading(true);
     try {
       const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
       const userId = currentUser._id || currentUser.user?._id;
       const userName = currentUser.name || currentUser.user?.name || currentUser.email;
-     
-      // Determine who is returning for rework
-      const isCreator = selectedDeferral.creator &&
-        (selectedDeferral.creator._id === userId || selectedDeferral.creator === userId);
-      const isChecker = selectedDeferral.checker &&
-        (selectedDeferral.checker._id === userId || selectedDeferral.checker === userId);
-     
+      const userRole = currentUser.role || currentUser.user?.role;
+      
+      // Determine who is returning for rework based on user role
+      const isCreator = userRole === 'creator' ||
+        (selectedDeferral.creator &&
+         (selectedDeferral.creator._id?.toString() === userId || selectedDeferral.creator?.toString() === userId));
+      
+      const isChecker = userRole === 'checker' ||
+        (selectedDeferral.checker &&
+         (selectedDeferral.checker._id?.toString() === userId || selectedDeferral.checker?.toString() === userId));
+      
       let response;
-     
-      if (isCreator) {
+      
+      if (isCreator || userRole === 'creator') {
         response = await deferralApi.returnForReworkByCreator(selectedDeferral._id, {
-          comment: creatorComment,
+          comment: reworkComment,
           returnedBy: userId,
           returnedByName: userName,
           returnedByRole: "Creator"
         }, token);
-      } else if (isChecker) {
+      } else if (isChecker || userRole === 'checker') {
         response = await deferralApi.returnForReworkByChecker(selectedDeferral._id, {
-          comment: creatorComment,
+          comment: reworkComment,
           returnedBy: userId,
           returnedByName: userName,
           returnedByRole: "Checker"
         }, token);
       } else {
         response = await deferralApi.returnForRework(selectedDeferral._id, {
-          comment: creatorComment,
+          comment: reworkComment,
           returnedBy: userId,
           returnedByName: userName,
           returnedByRole: "Approver"
@@ -894,14 +920,14 @@ const Deferrals = ({ userId }) => {
       }
 
       if (response && response.success) {
-        message.success("Deferral returned for rework successfully!");
-       
+        message.success("Deferral returned for rework successfully! Relationship Manager has been notified.");
+        
         // Email notification to RM
         try {
           await deferralApi.sendEmailNotification(selectedDeferral._id, 'returned_for_rework_to_rm', {
-            comment: creatorComment,
+            comment: reworkComment,
             userName: userName,
-            returnedBy: isCreator ? 'Creator' : isChecker ? 'Checker' : 'Approver'
+            returnedBy: isCreator || userRole === 'creator' ? 'Creator' : isChecker || userRole === 'checker' ? 'Checker' : 'Approver'
           });
         } catch (emailErr) {
           console.warn("Failed to send email notification:", emailErr);
@@ -912,24 +938,23 @@ const Deferrals = ({ userId }) => {
           d._id === selectedDeferral._id ? { ...d, ...response.deferral } : d
         );
         setDeferrals(updatedDeferrals);
-       
+        
         setModalVisible(false);
         setSelectedDeferral(null);
-        setCreatorComment("");
-       
+        setShowReworkConfirm(false);
+        
         // Set active tab to returned
         setActiveTab('returned');
-       
+        
         // Load deferrals to refresh lists
         loadDeferrals();
-       
+        
         // Dispatch event for other components
         try {
           window.dispatchEvent(new CustomEvent('deferral:updated', {
             detail: response.deferral
           }));
         } catch(e) { /* ignore */ }
-       
       } else {
         throw new Error(response?.message || "Failed to return deferral for rework");
       }
@@ -937,7 +962,7 @@ const Deferrals = ({ userId }) => {
       console.error("Error returning deferral for rework:", error);
       message.error(error.message || "Failed to return deferral for rework");
     } finally {
-      setActionLoading(false);
+      setReturnReworkLoading(false);
     }
   };
 
@@ -2808,6 +2833,71 @@ const Deferrals = ({ userId }) => {
               showCount
             />
           </div>
+        </div>
+      </Modal>
+
+      {/* Reject Confirmation Modal */}
+      <Modal
+        title={`Reject Deferral Request: ${selectedDeferral?.deferralNumber}`}
+        open={showRejectConfirm}
+        onCancel={() => setShowRejectConfirm(false)}
+        okText={'Yes, Reject'}
+        okType={'danger'}
+        okButtonProps={{ style: { background: ERROR_RED, borderColor: ERROR_RED, color: 'white' }, loading: rejecting }}
+        cancelText={'Cancel'}
+        onOk={doReject}
+      >
+        <div>
+          <p>Are you sure you want to reject this deferral request?</p>
+          <p><strong>{selectedDeferral?.deferralNumber}</strong> - {selectedDeferral?.customerName}</p>
+          <p>Days Sought: <strong>{selectedDeferral?.daysSought}</strong> days</p>
+          <p style={{ marginBottom: 6 }}>Please provide a reason for rejection (required):</p>
+          <Input.TextArea 
+            rows={4} 
+            value={rejectComment} 
+            onChange={(e) => setRejectComment(e.target.value)} 
+            placeholder="Enter rejection reason..." 
+            required
+          />
+          {!rejectComment || rejectComment.trim() === '' ? (
+            <p style={{ color: ERROR_RED, fontSize: 12, marginTop: 4 }}>
+              Rejection reason is required
+            </p>
+          ) : null}
+        </div>
+      </Modal>
+
+      {/* Return for Rework Confirmation Modal */}
+      <Modal
+        title={`Return for Rework: ${selectedDeferral?.deferralNumber}`}
+        open={showReworkConfirm}
+        onCancel={() => setShowReworkConfirm(false)}
+        okText={'Yes, Return for Rework'}
+        okType={'warning'}
+        okButtonProps={{ style: { background: WARNING_ORANGE, borderColor: WARNING_ORANGE }, loading: returnReworkLoading }}
+        cancelText={'Cancel'}
+        onOk={doReturnForRework}
+      >
+        <div>
+          <p>Are you sure you want to return this deferral for rework?</p>
+          <p><strong>{selectedDeferral?.deferralNumber}</strong> - {selectedDeferral?.customerName}</p>
+          <p>This will return the deferral back to the Relationship Manager for corrections.</p>
+          <p style={{ marginBottom: 6 }}>Please provide rework instructions for the Relationship Manager (required):</p>
+          <Input.TextArea 
+            rows={4} 
+            value={reworkComment} 
+            onChange={(e) => setReworkComment(e.target.value)} 
+            placeholder="Enter rework instructions for the Relationship Manager..." 
+            required
+          />
+          {!reworkComment || reworkComment.trim() === '' ? (
+            <p style={{ color: ERROR_RED, fontSize: 12, marginTop: 4 }}>
+              Rework instructions are required
+            </p>
+          ) : null}
+          <p style={{ marginTop: 12, fontSize: 12, color: '#666', fontStyle: 'italic' }}>
+            Note: The Relationship Manager will receive these instructions and need to resubmit the deferral request.
+          </p>
         </div>
       </Modal>
     </div>

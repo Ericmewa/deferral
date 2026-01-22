@@ -27,7 +27,8 @@ import {
   Input as AntdInput,
   Progress,
   List,
-  Popconfirm
+  Popconfirm,
+  Tabs
 } from "antd";
 import {
   SearchOutlined,
@@ -61,6 +62,8 @@ import dayjs from "dayjs";
 import deferralApi from "../../service/deferralApi.js";
 import getFacilityColumns from '../../utils/facilityColumns';
 import { useNavigate } from "react-router-dom";
+import ApproverExtensionTab from "../../components/ApproverExtensionTab";
+import { useGetApproverExtensionsQuery, useApproveExtensionMutation, useRejectExtensionMutation } from "../../api/extensionApi";
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
@@ -1032,6 +1035,14 @@ const MyQueue = () => {
   // Live data - load pending deferrals from API
   const [deferrals, setDeferrals] = useState([]);
 
+  // Extension state and hooks
+  const { data: pendingExtensions = [], isLoading: extensionsLoading, refetch: refetchExtensions } = useGetApproverExtensionsQuery();
+  const [approveExtension, { isLoading: approvingExtension }] = useApproveExtensionMutation();
+  const [rejectExtension, { isLoading: rejectingExtension }] = useRejectExtensionMutation();
+  const [approvingExtensionId, setApprovingExtensionId] = useState(null);
+  const [rejectingExtensionId, setRejectingExtensionId] = useState(null);
+  const [activeTab, setActiveTab] = useState("queue");
+
   // Fetch data on component mount
   useEffect(() => {
     fetchDeferrals();
@@ -1135,6 +1146,33 @@ const MyQueue = () => {
         break;
       default:
         break;
+    }
+  };
+
+  // Extension handlers
+  const handleApproveExtension = async (extensionId, comment) => {
+    setApprovingExtensionId(extensionId);
+    try {
+      await approveExtension({ id: extensionId, comment }).unwrap();
+      message.success("Extension approved successfully");
+      refetchExtensions();
+    } catch (error) {
+      message.error(error?.data?.message || "Failed to approve extension");
+    } finally {
+      setApprovingExtensionId(null);
+    }
+  };
+
+  const handleRejectExtension = async (extensionId, reason) => {
+    setRejectingExtensionId(extensionId);
+    try {
+      await rejectExtension({ id: extensionId, reason }).unwrap();
+      message.success("Extension rejected successfully");
+      refetchExtensions();
+    } catch (error) {
+      message.error(error?.data?.message || "Failed to reject extension");
+    } finally {
+      setRejectingExtensionId(null);
     }
   };
 
@@ -1306,12 +1344,18 @@ const MyQueue = () => {
       >
         <h2 style={{ margin: 0, color: PRIMARY_BLUE }}>My Queue</h2>
         <p style={{ marginTop: 4, color: "#666" }}>
-          All deferral requests from Relationship Managers • {filteredDeferrals.length} items
+          Deferral requests and extensions awaiting your approval
         </p>
       </Card>
 
+      {/* Tabs */}
+      <Tabs activeKey={activeTab} onChange={(key) => setActiveTab(key)} type="card" style={{ marginBottom: 16 }}>
+        <Tabs.TabPane tab={`Queue (${filteredDeferrals.length})`} key="queue" />
+        <Tabs.TabPane tab={`Extension Applications (${pendingExtensions.length})`} key="extensions" />
+      </Tabs>
 
-
+      {activeTab === "queue" && (
+      <>
       {/* Search Filter Only */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Row gutter={16}>
@@ -1364,6 +1408,20 @@ const MyQueue = () => {
           />
         </div>
       </Card>
+      </>
+      )}
+
+      {activeTab === "extensions" && (
+        <ApproverExtensionTab
+          extensions={pendingExtensions}
+          loading={extensionsLoading}
+          onApprove={handleApproveExtension}
+          onReject={handleRejectExtension}
+          approvingId={approvingExtensionId}
+          rejectingId={rejectingExtensionId}
+          tabType="queue"
+        />
+      )}
 
       {/* Deferral Details Modal */}
       {selectedDeferral && (

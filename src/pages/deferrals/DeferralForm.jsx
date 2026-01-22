@@ -78,14 +78,14 @@ const { Option } = Select;
 
 export default function DeferralForm({ userId, onSuccess }) {
   const navigate = useNavigate();
-  
+ 
   // ----------------------
   // STATES
   // ----------------------
   const [showSearchForm, setShowSearchForm] = useState(false);
   const [isCustomerFetched, setIsCustomerFetched] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
+ 
   // User state - will be populated from your auth system
   const [currentUser, setCurrentUser] = useState({
     name: "",
@@ -102,7 +102,7 @@ export default function DeferralForm({ userId, onSuccess }) {
   const [loanType, setLoanType] = useState(""); // Added for customer info card
 
   // legacy approvers array (kept for backward compatibility)
-  const [approvers, setApprovers] = useState([""]); 
+  const [approvers, setApprovers] = useState([""]);
 
   // Slots driven by approval matrix; each slot: { role, userId }
   const [approverSlots, setApproverSlots] = useState([]);
@@ -202,7 +202,7 @@ export default function DeferralForm({ userId, onSuccess }) {
       try {
         // Example: Get user from localStorage, context, or API
         const userData = localStorage.getItem('currentUser');
-        
+       
         if (userData) {
           // If you store user data in localStorage
           const parsedUser = JSON.parse(userData);
@@ -229,18 +229,18 @@ export default function DeferralForm({ userId, onSuccess }) {
   // ----------------------
   const formatLoanType = (loanType) => {
     if (!loanType) return "Not selected";
-    
+   
     // Map lowercase values to display values
     const loanTypeMap = {
       "asset finance": "Asset Finance",
-      "business loan": "Business Loan", 
+      "business loan": "Business Loan",
       "consumer": "Consumer",
       "mortgage": "Mortgage",
       "construction": "Construction Loan",
       "shamba loan": "Shamba Loan"
     };
-    
-    return loanTypeMap[loanType.toLowerCase()] || 
+   
+    return loanTypeMap[loanType.toLowerCase()] ||
            loanType.charAt(0).toUpperCase() + loanType.slice(1);
   };
 
@@ -494,7 +494,7 @@ export default function DeferralForm({ userId, onSuccess }) {
     try {
       const stored = JSON.parse(localStorage.getItem('user') || 'null');
       const token = stored?.token;
-      
+     
       // Fetch the checklist to get the documents
       const url = `${import.meta.env.VITE_API_URL}/api/cocreatorChecklist/${checklistId}`;
       const res = await fetch(url, {
@@ -510,7 +510,7 @@ export default function DeferralForm({ userId, onSuccess }) {
       }
 
       const checklist = await res.json();
-      
+     
       // Find the most recent DCL file (if documents array exists)
       if (checklist.documents && Array.isArray(checklist.documents)) {
         // Flatten all documents and find the most recent one
@@ -523,15 +523,15 @@ export default function DeferralForm({ userId, onSuccess }) {
 
         // Sort by timestamp and get the most recent
         allDocs.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-        
+       
         if (allDocs.length > 0) {
           const latestDoc = allDocs[0];
-          
+         
           // Set the DCL file with the document details for display in the compartment
           if (latestDoc.fileUrl || latestDoc.url) {
             const fileName = latestDoc.name || `${dclNumber}.pdf`;
             const fileUrl = latestDoc.fileUrl || latestDoc.url;
-            
+           
             setDclFile({
               name: fileName,
               url: fileUrl,
@@ -570,12 +570,12 @@ export default function DeferralForm({ userId, onSuccess }) {
     // Check file type
     const allowedTypes = ['.pdf', '.PDF', '.doc', '.docx', '.xls', '.xlsx', '.png', '.jpg', '.jpeg'];
     const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
-    
+   
     if (!allowedTypes.includes(fileExtension)) {
       message.error(`File type not allowed. Please upload: ${allowedTypes.join(', ')}`);
       return false;
     }
-    
+   
     setDclFile(file);
     message.success(`${file.name} selected for DCL upload`);
     return false; // Prevent auto upload
@@ -585,12 +585,12 @@ export default function DeferralForm({ userId, onSuccess }) {
     // Check file type
     const allowedTypes = ['.pdf', '.PDF', '.doc', '.docx', '.xls', '.xlsx', '.png', '.jpg', '.jpeg'];
     const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
-    
+   
     if (!allowedTypes.includes(fileExtension)) {
       message.error(`File type not allowed. Please upload: ${allowedTypes.join(', ')}`);
       return false;
     }
-    
+   
     // Add to existing files
     const newFileList = [...additionalFiles, file];
     setAdditionalFiles(newFileList);
@@ -636,15 +636,15 @@ export default function DeferralForm({ userId, onSuccess }) {
     if (file && file.originFileObj) {
       // Create a URL for the file
       const fileURL = URL.createObjectURL(file.originFileObj);
-      
+     
       // Open in new tab
       window.open(fileURL, '_blank');
-      
+     
       // Clean up the URL object after some time
       setTimeout(() => {
         URL.revokeObjectURL(fileURL);
       }, 10000);
-      
+     
       message.info(`Opening ${file.name}`);
     } else if (file && file instanceof File) {
       // If it's a file object directly
@@ -699,7 +699,7 @@ export default function DeferralForm({ userId, onSuccess }) {
   // ----------------------
   const renderDocumentItem = (file, allowDelete = true) => {
     const fileSize = file.size ? `${(file.size / 1024).toFixed(2)} KB` : 'Size unknown';
-    
+   
     return (
       <div style={{
         display: 'flex',
@@ -758,7 +758,7 @@ export default function DeferralForm({ userId, onSuccess }) {
   const renderCustomerInfoCard = () => {
     // Get the first selected approver or show "Pending" if none
     const firstApprover = approvers.find(a => a !== "") || "Pending";
-    
+   
     return (
       <Card
         size="small"
@@ -823,8 +823,8 @@ export default function DeferralForm({ userId, onSuccess }) {
           </Descriptions.Item>
           <Descriptions.Item label="Approver">
             <div style={{ display: "flex", alignItems: "center" }}>
-              <Text strong style={{ 
-                color: firstApprover === "Pending" ? "#d9d9d9" : PRIMARY_PURPLE 
+              <Text strong style={{
+                color: firstApprover === "Pending" ? "#d9d9d9" : PRIMARY_PURPLE
               }}>
                 {firstApprover}
               </Text>
@@ -894,7 +894,7 @@ export default function DeferralForm({ userId, onSuccess }) {
     >
       <Row gutter={[16, 16]}>
 
-        
+       
         <Col span={12}>
           <Text strong>Loan Amount</Text>
           <Select
@@ -908,9 +908,9 @@ export default function DeferralForm({ userId, onSuccess }) {
             <Option value="above75">Above 75 million</Option>
           </Select>
         </Col>
-        
+       
 
-        
+       
 
             <Col span={12}>
               <Text strong>No. of Days Sought</Text>
@@ -936,7 +936,7 @@ export default function DeferralForm({ userId, onSuccess }) {
                 <Option value="45">45 days</Option>
               </Select>
             </Col>
-            
+           
             <Col span={12}>
               <Text strong>Next Document Due Date</Text>
               <DatePicker
@@ -947,12 +947,12 @@ export default function DeferralForm({ userId, onSuccess }) {
                 format="DD/MM/YYYY"
               />
             </Col>
-        
-        
+       
+       
 
-        
+       
 
-        
+       
         {/* Document Picker Component - Imported with custom title */}
         <Col span={24}>
           <div style={{ marginBottom: 16 }}>
@@ -969,12 +969,12 @@ export default function DeferralForm({ userId, onSuccess }) {
               </Title>
             </div>
           </div>
-          <DocumentPicker 
+          <DocumentPicker
             selectedDocuments={selectedDocuments}
             setSelectedDocuments={setSelectedDocuments}
           />
         </Col>
-        
+       
         <Col span={24}>
           <Text strong>Deferral Description</Text>
           <TextArea
@@ -985,7 +985,7 @@ export default function DeferralForm({ userId, onSuccess }) {
             required
           />
         </Col>
-        
+       
         {/* Facility Table Component - Imported with custom title */}
         <Col span={24}>
           <div style={{ marginBottom: 16 }}>
@@ -1002,12 +1002,12 @@ export default function DeferralForm({ userId, onSuccess }) {
               </Title>
             </div>
           </div>
-          <FacilityTable 
+          <FacilityTable
             facilities={facilities}
             setFacilities={setFacilities}
           />
         </Col>
-        
+       
         <Col span={24}>
           <Text strong>DCL Number</Text>
           <Input
@@ -1025,7 +1025,7 @@ export default function DeferralForm({ userId, onSuccess }) {
             }}
           />
         </Col>
-        
+       
         <Col span={24}>
           {/* Updated Mandatory: DCL Upload with view and delete actions */}
           <Card size="small" style={{ marginBottom: 16 }}>
@@ -1053,13 +1053,13 @@ export default function DeferralForm({ userId, onSuccess }) {
                 Upload DCL Document
               </Button>
             </Upload>
-            
+           
             {dclFile && (
               <div style={{ marginTop: 16 }}>
                 {renderDocumentItem(dclFile, true)}
               </div>
             )}
-            
+           
             {!dclNumber ? (
               <Text type="secondary" style={{ display: "block", marginTop: 8 }}>
                 Please enter DCL number first
@@ -1073,13 +1073,13 @@ export default function DeferralForm({ userId, onSuccess }) {
                 <Text type="success" style={{ display: "block", marginTop: 8, fontSize: '12px' }}>
                   ✓ DCL document ready: {dclFile.name}
                 </Text>
-      
+     
               </div>
             )}
-      
+     
           </Card>
         </Col>
-        
+       
         <Col span={24}>
           {/* Updated Additional Documents with view and delete actions */}
           <Card size="small">
@@ -1106,7 +1106,7 @@ export default function DeferralForm({ userId, onSuccess }) {
                 Upload Additional Documents
               </Button>
             </Upload>
-            
+           
             {additionalFiles.length > 0 && (
               <div style={{ marginTop: 16 }}>
                 {additionalFiles.map((file, index) => (
@@ -1118,7 +1118,7 @@ export default function DeferralForm({ userId, onSuccess }) {
                   <Text type="success" style={{ display: "block", marginTop: 8, fontSize: '12px' }}>
                     ✓ {additionalFiles.length} additional document{additionalFiles.length !== 1 ? 's' : ''} ready
                   </Text>
-      
+     
                 </div>
               </div>
             )}
@@ -1567,20 +1567,20 @@ export default function DeferralForm({ userId, onSuccess }) {
           }}
         >
           <BankOutlined style={{ fontSize: 64, color: PRIMARY_PURPLE, marginBottom: 24 }} />
-          
+         
           <Title level={3} style={{ color: PRIMARY_PURPLE, marginBottom: 8 }}>
             Start New Deferral Request
           </Title>
-          
+         
           <Text type="secondary" style={{ display: "block", marginBottom: 32, fontSize: 16 }}>
             Please search for a customer to begin the deferral request process
           </Text>
-          
+         
           {/* Only show the search form if showSearchForm is true */}
           {showSearchForm ? (
             <>
               <Divider style={{ margin: "24px 0" }} />
-              
+             
               {/* Search Mode Tabs */}
               <div style={{ marginBottom: 24, display: 'flex', gap: 12, justifyContent: 'center' }}>
                 <Button
@@ -1678,7 +1678,7 @@ export default function DeferralForm({ userId, onSuccess }) {
                         )}
                       </div>
                     </Form.Item>
-                    
+                   
                     <Form.Item
                       label="Loan Type"
                       name="loanType"
@@ -1699,7 +1699,7 @@ export default function DeferralForm({ userId, onSuccess }) {
                         <Option value="shamba loan">Shamba Loan</Option>
                       </Select>
                     </Form.Item>
-                    
+                   
                     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 24 }}>
                       <Button
                         type="default"
@@ -1815,7 +1815,7 @@ export default function DeferralForm({ userId, onSuccess }) {
               {isFetching ? "Searching..." : "Search Customer"}
             </Button>
           )}
-          
+         
           <div style={{ marginTop: 24 }}>
             <Button
               type="default"
@@ -1825,7 +1825,7 @@ export default function DeferralForm({ userId, onSuccess }) {
               ← Back to My Deferrals
             </Button>
           </div>
-          
+         
           <div style={{ marginTop: 24 }}>
 
           </div>
@@ -1841,7 +1841,7 @@ export default function DeferralForm({ userId, onSuccess }) {
           {renderCustomerInfoCard()}
           {renderDeferralDetailsCard()}
         </Col>
-        
+       
         <Col span={6}>
           {renderApproverSidebar()}
         </Col>
