@@ -133,24 +133,8 @@ export default function DeferralForm({ userId, onSuccess }) {
   const LOAN_THRESHOLD = 75000000; // 75M
 
   const computeDefaultRoles = () => {
-    const amt = parsedLoanAmount();
-    if (documentCategory === "Primary") {
-      if (amt < LOAN_THRESHOLD) {
-        return [
-          "Head of Business Segment",
-          "Director of Business Unit",
-          "Senior Manager, Retail & Corporate Credit Approvals",
-        ];
-      }
-      return [
-        "Head of Business Segment",
-        "Group Director of Business Unit",
-        "Senior Manager, Retail & Corporate Credit Approvals",
-      ];
-    }
-
-    // Secondary documents
-    return ["Head of Business Segment", "Director of Business Unit", "Head of Credit Operations"];
+    // Predefined roles removed per user request
+    return [];
   };
 
   // Initialize approver slots when document selection or loan amount changes, unless user customized slots

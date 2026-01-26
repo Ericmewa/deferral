@@ -60,6 +60,8 @@ import { jsPDF } from 'jspdf';
 import deferralApi from '../../service/deferralApi.js';
 import { openFileInNewTab, downloadFile } from '../../utils/fileUtils';
 import getFacilityColumns from '../../utils/facilityColumns';
+import CreatorExtensionTab from '../../components/CreatorExtensionTab';
+import { useGetCreatorPendingExtensionsQuery, useApproveExtensionAsCreatorMutation, useRejectExtensionAsCreatorMutation } from '../../api/extensionApi';
 
 // Extend dayjs
 dayjs.extend(relativeTime);
@@ -355,6 +357,13 @@ const Deferrals = ({ userId }) => {
   const [showReworkConfirm, setShowReworkConfirm] = useState(false);
   const [reworkComment, setReworkComment] = useState("");
   const [returnReworkLoading, setReturnReworkLoading] = useState(false);
+
+  // Extension state and hooks
+  const { data: pendingExtensions = [], isLoading: extensionsLoading, refetch: refetchExtensions } = useGetCreatorPendingExtensionsQuery();
+  const [approveExtension, { isLoading: approvingExtension }] = useApproveExtensionAsCreatorMutation();
+  const [rejectExtension, { isLoading: rejectingExtension }] = useRejectExtensionAsCreatorMutation();
+  const [approvingExtensionId, setApprovingExtensionId] = useState(null);
+  const [rejectingExtensionId, setRejectingExtensionId] = useState(null);
 
   // Fetch deferrals from API
   const fetchDeferrals = async () => {
@@ -815,6 +824,33 @@ const Deferrals = ({ userId }) => {
       message.error(error.message || "Failed to reject deferral");
     } finally {
       setRejecting(false);
+    }
+  };
+
+  // Extension handlers
+  const handleApproveExtension = async (extensionId, comment) => {
+    setApprovingExtensionId(extensionId);
+    try {
+      await approveExtension({ id: extensionId, comment }).unwrap();
+      message.success("Extension approved successfully");
+      refetchExtensions();
+    } catch (error) {
+      message.error(error?.data?.message || "Failed to approve extension");
+    } finally {
+      setApprovingExtensionId(null);
+    }
+  };
+
+  const handleRejectExtension = async (extensionId, reason) => {
+    setRejectingExtensionId(extensionId);
+    try {
+      await rejectExtension({ id: extensionId, reason }).unwrap();
+      message.success("Extension rejected successfully");
+      refetchExtensions();
+    } catch (error) {
+      message.error(error?.data?.message || "Failed to reject extension");
+    } finally {
+      setRejectingExtensionId(null);
     }
   };
 
@@ -1770,64 +1806,80 @@ const Deferrals = ({ userId }) => {
             return isFullyApproved;
           }).length})`} key="approved" />
           <Tabs.TabPane tab={`Completed Deferrals (${deferrals.filter(d => ['closed','deferral_closed','closed_by_co','closed_by_creator'].includes((d.status||'').toString().toLowerCase())).length})`} key="closed" />
+          <Tabs.TabPane tab={`Extension Applications (${pendingExtensions.length})`} key="extensions" />
         </Tabs>
         <div style={{ marginTop: 8, fontWeight: 700, color: PRIMARY_BLUE }}>
-          {activeTab === 'pending' ? `Pending Deferrals (${filteredDeferrals.length} items)`
+          {activeTab === 'extensions' ? `Extension Applications (${pendingExtensions.length} items)`
+            : activeTab === 'pending' ? `Pending Deferrals (${filteredDeferrals.length} items)`
             : activeTab === 'returned' ? `Returned for Re-work (${filteredDeferrals.length} items)`
             : activeTab === 'approved' ? `Fully Approved Deferrals (${filteredDeferrals.length} items)`
             : `Completed Deferrals (${filteredDeferrals.length} items)`}
         </div>
       </div>
 
-      {/* Deferrals Table */}
-      {loading ? (
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: 40 }}>
-          <Spin tip={`Loading ${activeTab} deferrals...`} />
-        </div>
-      ) : filteredDeferrals.length === 0 ? (
-        <Empty
-          description={
-            <div>
-              <p style={{ fontSize: 16, marginBottom: 8 }}>
-                {activeTab === 'pending' ? 'No pending deferrals found'
-                  : activeTab === 'returned' ? 'No returned deferrals found'
-                  : activeTab === 'approved' ? 'No fully approved deferrals found'
-                  : 'No completed deferrals found'}
-              </p>
-              <p style={{ color: "#999" }}>
-                {filters.search || filters.priority !== 'all'
-                  ? 'Try changing your filters'
-                  : (activeTab === 'pending' ? 'All deferral requests have been processed'
-                    : activeTab === 'returned' ? 'No deferrals have been returned for re-work'
-                    : activeTab === 'approved' ? 'No deferrals have been fully approved yet'
-                    : 'No deferrals have been closed by CO')}
-              </p>
-            </div>
-          }
-          style={{ padding: 40 }}
+      {/* Extensions Tab */}
+      {activeTab === 'extensions' && (
+        <CreatorExtensionTab
+          extensions={pendingExtensions}
+          loading={extensionsLoading}
+          onApprove={handleApproveExtension}
+          onReject={handleRejectExtension}
+          approvingId={approvingExtensionId}
+          rejectingId={rejectingExtensionId}
         />
-      ) : (
-        <div className="deferrals-table">
-          <Table
-            columns={columns}
-            dataSource={filteredDeferrals}
-            rowKey={(record) => record._id || record.id}
-            size="large"
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: true,
-              pageSizeOptions: ["10", "20", "50"],
-              position: ["bottomCenter"],
-              showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} ${activeTab} deferrals`
-            }}
-            rowClassName={(record, index) => (index % 2 === 0 ? "bg-white" : "bg-gray-50")}
-            scroll={{ x: 1300 }}
-            onRow={(record) => ({
-              onClick: () => handleRowClick(record),
-              style: { cursor: 'pointer' }
-            })}
+      )}
+
+      {/* Deferrals Table */}
+      {activeTab !== 'extensions' && (
+        loading ? (
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: 40 }}>
+            <Spin tip={`Loading ${activeTab} deferrals...`} />
+          </div>
+        ) : filteredDeferrals.length === 0 ? (
+          <Empty
+            description={
+              <div>
+                <p style={{ fontSize: 16, marginBottom: 8 }}>
+                  {activeTab === 'pending' ? 'No pending deferrals found'
+                    : activeTab === 'returned' ? 'No returned deferrals found'
+                    : activeTab === 'approved' ? 'No fully approved deferrals found'
+                    : 'No completed deferrals found'}
+                </p>
+                <p style={{ color: "#999" }}>
+                  {filters.search || filters.priority !== 'all'
+                    ? 'Try changing your filters'
+                    : (activeTab === 'pending' ? 'All deferral requests have been processed'
+                      : activeTab === 'returned' ? 'No deferrals have been returned for re-work'
+                      : activeTab === 'approved' ? 'No deferrals have been fully approved yet'
+                      : 'No deferrals have been closed by CO')}
+                </p>
+              </div>
+            }
+            style={{ padding: 40 }}
           />
-        </div>
+        ) : (
+          <div className="deferrals-table">
+            <Table
+              columns={columns}
+              dataSource={filteredDeferrals}
+              rowKey={(record) => record._id || record.id}
+              size="large"
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                pageSizeOptions: ["10", "20", "50"],
+                position: ["bottomCenter"],
+                showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} ${activeTab} deferrals`
+              }}
+              rowClassName={(record, index) => (index % 2 === 0 ? "bg-white" : "bg-gray-50")}
+              scroll={{ x: 1300 }}
+              onRow={(record) => ({
+                onClick: () => handleRowClick(record),
+                style: { cursor: 'pointer' }
+              })}
+            />
+          </div>
+        )
       )}
 
       {/* Deferral Review Modal */}

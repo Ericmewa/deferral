@@ -2475,6 +2475,27 @@ const DeferralPending = ({ userId = "rm_current" }) => {
     return 'pending';
   });
 
+  // Extension-related state
+  const [extensionModalOpen, setExtensionModalOpen] = useState(false);
+  const [selectedDeferralForExtension, setSelectedDeferralForExtension] = useState(null);
+  const [createExtension, { isLoading: extensionCreating }] = useCreateExtensionMutation();
+  const handleExtensionSubmit = async (data) => {
+    try {
+      await createExtension({ deferralId: selectedDeferralForExtension._id, ...data }).unwrap();
+      message.success('Extension request created successfully');
+      setExtensionModalOpen(false);
+      setSelectedDeferralForExtension(null);
+      refetchExtensions();
+    } catch (error) {
+      message.error('Failed to create extension request');
+    }
+  };
+
+  const handleApplyForExtension = (deferral) => {
+    setSelectedDeferralForExtension(deferral);
+    setExtensionModalOpen(true);
+  };
+
   // Load data
   useEffect(() => {
     const load = async () => {
@@ -2526,6 +2547,9 @@ const DeferralPending = ({ userId = "rm_current" }) => {
 
     load();
   }, [userId]);
+
+  // Extensions data for tab view
+  const { data: myExtensions = [], isLoading: extensionsLoading } = useGetMyExtensionsQuery();
 
   // Filter data
   const filteredData = useMemo(() => {
@@ -2903,58 +2927,57 @@ const DeferralPending = ({ userId = "rm_current" }) => {
 
       {/* Table */}
       {activeTab !== 'extensions' && (
-      loading ? (
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: 40 }}>
-          <Spin tip="Loading deferral requests..." />
-        </div>
-        </div>
-      ) : currentData.length === 0 ? (
-        <Empty
-          description={
-            <div>
-              <p style={{ fontSize: 16, marginBottom: 8 }}>{activeTab === 'pending' ? 'No pending deferrals found' : activeTab === 'approved' ? 'No approved deferrals found' : activeTab === 'rejected' ? 'No re-work deferrals found' : 'No completed deferrals found'}</p>
-              <p style={{ color: "#999" }}>
-                {searchText
-                  ? 'Try changing your search term'
-                  : (activeTab === 'pending' ? 'No pending deferrals currently' : activeTab === 'approved' ? 'No deferrals have been approved yet' : activeTab === 'rejected' ? 'No deferrals have been rejected' : 'No deferrals have been closed by CO')}
-              </p>
-              {activeTab === 'pending' && (
-                <Button
-                  type="primary"
-                  onClick={() => window.location.href = '/rm/deferrals/request'}
-                  style={{ marginTop: 16 }}
-                >
-                  Request New Deferral
-                </Button>
-              )}
-            </div>
-          }
-          style={{ padding: 40 }}
-        />
-      ) : (
-        <div className="deferral-pending-table">
-          <Table
-            columns={columns}
-            dataSource={currentData}
-            rowKey="_id"
-            size="middle"
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: true,
-              pageSizeOptions: ["10", "20", "50"],
-              position: ["bottomCenter"],
-              showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} deferrals`
-            }}
-            scroll={{ x: 1000 }}
-            onRow={(record) => ({
-              onClick: () => {
-                setSelectedDeferral(record);
-                setModalOpen(true);
-              },
-            })}
+        loading ? (
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: 40 }}>
+            <Spin tip="Loading deferral requests..." />
+          </div>
+        ) : currentData.length === 0 ? (
+          <Empty
+            description={
+              <div>
+                <p style={{ fontSize: 16, marginBottom: 8 }}>{activeTab === 'pending' ? 'No pending deferrals found' : activeTab === 'approved' ? 'No approved deferrals found' : activeTab === 'rejected' ? 'No re-work deferrals found' : 'No completed deferrals found'}</p>
+                <p style={{ color: "#999" }}>
+                  {searchText
+                    ? 'Try changing your search term'
+                    : (activeTab === 'pending' ? 'No pending deferrals currently' : activeTab === 'approved' ? 'No deferrals have been approved yet' : activeTab === 'rejected' ? 'No deferrals have been rejected' : 'No deferrals have been closed by CO')}
+                </p>
+                {activeTab === 'pending' && (
+                  <Button
+                    type="primary"
+                    onClick={() => window.location.href = '/rm/deferrals/request'}
+                    style={{ marginTop: 16 }}
+                  >
+                    Request New Deferral
+                  </Button>
+                )}
+              </div>
+            }
+            style={{ padding: 40 }}
           />
-        </div>
-      )}
+        ) : (
+          <div className="deferral-pending-table">
+            <Table
+              columns={columns}
+              dataSource={currentData}
+              rowKey="_id"
+              size="middle"
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                pageSizeOptions: ["10", "20", "50"],
+                position: ["bottomCenter"],
+                showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} deferrals`
+              }}
+              scroll={{ x: 1000 }}
+              onRow={(record) => ({
+                onClick: () => {
+                  setSelectedDeferral(record);
+                  setModalOpen(true);
+                },
+              })}
+            />
+          </div>
+        )
       )}
 
       {/* Footer Info */}
